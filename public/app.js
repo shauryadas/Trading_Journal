@@ -196,8 +196,8 @@ function TradeTable({ trades, accounts, onEdit, onDelete, compact = false }) {
   const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a]));
   const rows = trades;
   const [previewImage, setPreviewImage] = useState(null);
-  return html`<div className="table-scroll"><table className="data-table">
-    <thead><tr><th>Trade</th><th>Account</th><th>Date</th><th>Side</th><th>Position Size</th><th>Net P&L</th><th>R</th><th>Media</th><th></th></tr></thead>
+  return html`<div className="table-scroll"><table className="data-table" aria-label="Trade history">
+    <thead><tr><th>Trade</th><th>Account</th><th>Date</th><th>Side</th><th>Outcome</th><th>Position Size</th><th>Net P&L</th><th>R</th><th>Media</th><th></th></tr></thead>
     <tbody>
       ${rows.length ? rows.map((t) => {
         const attachments = t.media || [];
@@ -207,13 +207,14 @@ function TradeTable({ trades, accounts, onEdit, onDelete, compact = false }) {
         <td><span className="account-pill">${accountMap[t.accountId]?.firm || "Account"}</span></td>
         <td className="muted-cell">${shortDate(t.date)}</td>
         <td><span className=${"side-pill " + (t.side === "Long" ? "long" : "short")}>${t.side}</span></td>
+        <td><span className=${"outcome-pill " + ((t.outcome || (n(t.pnl) > 0 ? "Win" : n(t.pnl) < 0 ? "Loss" : "Break even")).toLowerCase().replace(/\s+/g, "-"))}>${t.outcome || (n(t.pnl) > 0 ? "Win" : n(t.pnl) < 0 ? "Loss" : "Break even")}</span></td>
         <td className="muted-cell">${t.positionSize || "—"}</td>
         <td className=${"mono-cell pnl-cell " + pnlClass(t.pnl)}>${signedMoney(t.pnl)}</td>
         <td className=${"mono-cell " + pnlClass(t.rMultiple)}>${n(t.rMultiple).toFixed(2)}R</td>
         <td className="muted-cell">${firstImage ? html`<button type="button" className="trade-media-trigger" onClick=${() => setPreviewImage(firstImage)} title="Preview attached image"><img src=${firstImage.url} alt=${firstImage.name || "Trade attachment"} /><span>${attachments.length > 1 ? "+" + (attachments.length - 1) : "View"}</span></button>` : attachments.length ? attachments.length + " file(s)" : "—"}</td>
         <td><div className="row-actions"><button type="button" className="tiny-icon" onClick=${() => onEdit(t)} title="Edit" aria-label="Edit trade"><${Icon} name="edit" size=${14} /></button><button type="button" className="tiny-icon danger" onClick=${() => onDelete(t.id)} title="Delete" aria-label="Delete trade"><${Icon} name="trash" size=${14} /></button></div></td>
       </tr>`;
-      }) : html`<tr><td colSpan="9"><div className="empty-state small-empty"><strong>No trades found</strong><span>Add a closed trade or adjust your filters.</span></div></td></tr>`}
+      }) : html`<tr><td colSpan="10"><div className="empty-state small-empty"><strong>No trades found</strong><span>Add a closed trade or adjust your filters.</span></div></td></tr>`}
     </tbody>
   </table>
   ${previewImage ? html`<${ImageLightbox} file=${previewImage} onClose=${() => setPreviewImage(null)} />` : null}
@@ -242,9 +243,7 @@ function EquityChart({ series, currency = "USD" }) {
     <div className="chart-legend"><span><i></i> Portfolio equity</span><strong className="chart-current-value">${money(series[series.length - 1]?.value || 0, currency)}</strong><span className="chart-range">${series.some((point) => !point.start) ? shortDate(series.find((point) => !point.start)?.date) + " — " + shortDate(series[series.length - 1]?.date) : "No closed trades yet"}</span></div>
     <svg className="equity-svg" viewBox=${"0 0 " + W + " " + H} role="img" aria-label="Portfolio equity by trading day">
       ${ticks.map((value) => html`<g><line x1=${L} x2=${W - R} y1=${y(value)} y2=${y(value)} stroke="#263442" strokeWidth="1" /><text x=${L - 12} y=${y(value) + 4} textAnchor="end" fill="#9aa8b8" fontSize="12" fontFamily="inherit">${money(value, currency)}</text></g>`)}
-      <path d=${path} fill="none" stroke="#66ff99" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-      ${points.length > 1 ? html`<circle cx=${points[points.length - 1].x} cy=${points[points.length - 1].y} r="4" fill="#66ff99" stroke="#0c151e" strokeWidth="2" />` : null}
-      ${points.map((point, index) => html`<g onMouseEnter=${() => setHovered({ ...point, index })} onMouseLeave=${() => setHovered(null)}><circle cx=${point.x} cy=${point.y} r="13" fill="transparent" style=${{ cursor: "crosshair" }} /></g>`)}
+      ${points.map((point, index) => { const barWidth = Math.max(4, Math.min(28, plotWidth / Math.max(1, points.length) * 0.62)); const barTop = Math.min(point.y, H - B); const barHeight = Math.max(2, H - B - barTop); return html`<rect x=${point.x - barWidth / 2} y=${barTop} width=${barWidth} height=${barHeight} rx="3" fill="#66ff99" opacity=${hovered?.index === index ? 1 : 0.78} onMouseEnter=${() => setHovered({ ...point, index })} onMouseLeave=${() => setHovered(null)} style=${{ cursor: "crosshair" }} />`; })}
       ${labelPoints.map((point, index) => html`<text x=${point.x} y=${H - 13} textAnchor=${index === 0 ? "start" : index === 2 ? "end" : "middle"} fill="#8b9aaa" fontSize="12" fontFamily="inherit">${dateLabel(point)}</text>`)}
       ${active ? html`<g pointerEvents="none"><line x1=${active.x} x2=${active.x} y1=${T} y2=${H - B} stroke="#9aa8b8" strokeDasharray="3 4" opacity=".7" /><circle cx=${active.x} cy=${active.y} r="4" fill="#66ff99" stroke="#0c151e" strokeWidth="2" /><g transform=${`translate(${Math.max(L, Math.min(W - 206, active.x + 12))} ${Math.max(T, active.y - 58)})`}><rect width="194" height="50" rx="7" fill="#101a25" stroke="#4b6478" /><text x="11" y="19" fill="#b9c7d5" fontSize="11">${active.start ? "Starting balance" : fullDate(active.date)}</text><text x="11" y="39" fill="#66ff99" fontSize="15" fontWeight="700">${money(active.value, currency)}</text></g></g>` : null}
     </svg>
@@ -259,7 +258,7 @@ function TradePnlChart({ trades }) {
   let running = 0;
   const series = dates.map((date) => ({ date, value: (running += daily[date]) }));
   if (!series.length) {
-    return html`<section className="panel trade-pnl-chart"><div className="panel-head"><div><div className="eyebrow">TRADE PERFORMANCE</div><h3>Cumulative realized P&L</h3></div><span className="panel-chip">No closed trades</span></div><div className="trade-chart-empty">Add trades to build your performance line.</div></section>`;
+    return html`<section className="panel trade-pnl-chart"><div className="panel-head"><div><div className="eyebrow">TRADE PERFORMANCE</div><h3>Cumulative realized P&L</h3></div><span className="panel-chip">No closed trades</span></div><div className="trade-chart-empty">Add trades to build your performance chart.</div></section>`;
   }
   const W = 900, H = 190, L = 16, R = 16, T = 14, B = 25;
   const values = series.map((point) => point.value);
@@ -268,24 +267,21 @@ function TradePnlChart({ trades }) {
   const low = min - spread * 0.12, high = max + spread * 0.12;
   const x = (index) => L + (series.length === 1 ? (W - L - R) / 2 : index / (series.length - 1) * (W - L - R));
   const y = (value) => T + (high - value) / (high - low) * (H - T - B);
-  const points = series.map((point, index) => ({ ...point, x: x(index), y: y(point.value) }));
-  const line = points.map((point, index) => (index ? "L" : "M") + point.x.toFixed(1) + " " + point.y.toFixed(1)).join(" ");
   const baseline = y(0);
-  const area = line + " L " + points[points.length - 1].x + " " + baseline + " L " + points[0].x + " " + baseline + " Z";
+  const points = series.map((point, index) => ({ ...point, x: x(index), y: y(point.value) }));
+  const barWidth = Math.max(2, Math.min(12, (W - L - R) / series.length * 0.22));
   const last = series[series.length - 1];
   const ticks = [high, (high + low) / 2, low];
   return html`<section className="panel trade-pnl-chart">
     <div className="panel-head"><div><div className="eyebrow">TRADE PERFORMANCE</div><h3>Cumulative realized P&L</h3></div><span className="panel-chip">${series.length} trading days</span></div>
     <div className="chart-wrap trade-chart-wrap">
       <div className="chart-legend"><span><i></i> Running net P&L</span><strong className=${pnlClass(last.value)}>${signedMoney(last.value)}</strong><span className="chart-range">${shortDate(series[0].date)} — ${shortDate(last.date)}</span></div>
-      <svg className="equity-svg trade-pnl-svg" viewBox=${"0 0 " + W + " " + H} role="img" aria-label="Cumulative realized trade profit and loss line chart">
+      <svg className="equity-svg trade-pnl-svg" viewBox=${"0 0 " + W + " " + H} role="img" aria-label="Cumulative realized trade profit and loss vertical bar chart">
         <defs><linearGradient id="trade-pnl-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#66ff99" stopOpacity=".18" /><stop offset="100%" stopColor="#66ff99" stopOpacity="0" /></linearGradient></defs>
         ${ticks.map((value) => html`<g><line x1=${L} x2=${W - R} y1=${y(value)} y2=${y(value)} stroke="#292929" strokeDasharray="3 5" /><text x=${L} y=${y(value) - 5} fill="rgba(255,255,255,.48)" fontSize="10">${money(value)}</text></g>`)}
         <line x1=${L} x2=${W - R} y1=${baseline} y2=${baseline} stroke="rgba(255,255,255,.3)" strokeDasharray="4 4" />
-        ${null}
-        <path d=${line} fill="none" stroke="#66ff99" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-        ${points.map((point, i) => html`<g onMouseEnter=${() => setHovered({ ...point, index: i })} onMouseLeave=${() => setHovered(null)}><circle cx=${point.x} cy=${point.y} r="12" fill="transparent" style=${{ cursor: "crosshair" }} /><circle cx=${point.x} cy=${point.y} r="0" fill="#66ff99" /></g>`) }
-        ${hovered ? html`<g pointerEvents="none"><line x1=${hovered.x} x2=${hovered.x} y1=${T} y2=${H - B} stroke="#9aa8b8" strokeDasharray="3 4" opacity=".7" /><circle cx=${hovered.x} cy=${hovered.y} r="0" fill="#66ff99" /><g transform=${`translate(${Math.max(8, Math.min(W - 184, hovered.x + 10))} ${Math.max(4, hovered.y - 54)})`}><rect width="176" height="44" rx="7" fill="#101a25" stroke="#4b6478" /><text x="10" y="17" fill="#b9c7d5" fontSize="10">${fullDate(hovered.date)}</text><text x="10" y="34" fill="#66ff99" fontSize="13" fontWeight="700">${signedMoney(hovered.value)}</text></g></g>` : null}
+        ${points.map((point, i) => { const top = Math.min(point.y, baseline); const height = Math.max(2, Math.abs(baseline - point.y)); const fill = point.value >= 0 ? "#66ff99" : "#ff7777"; return html`<rect x=${point.x - barWidth / 2} y=${top} width=${barWidth} height=${height} rx="3" fill=${fill} opacity=${hovered?.index === i ? 1 : 0.78} onMouseEnter=${() => setHovered({ ...point, index: i })} onMouseLeave=${() => setHovered(null)} style=${{ cursor: "crosshair" }} />`; })}
+        ${hovered ? html`<g pointerEvents="none"><line x1=${hovered.x} x2=${hovered.x} y1=${T} y2=${H - B} stroke="#9aa8b8" strokeDasharray="3 4" opacity=".7" /><g transform=${`translate(${Math.max(8, Math.min(W - 184, hovered.x + 10))} ${Math.max(4, Math.min(H - B - 48, hovered.y - 54))})`}><rect width="176" height="44" rx="7" fill="#101a25" stroke="#4b6478" /><text x="10" y="17" fill="#b9c7d5" fontSize="10">${fullDate(hovered.date)}</text><text x="10" y="34" fill=${hovered.value >= 0 ? "#66ff99" : "#ff7777"} fontSize="13" fontWeight="700">${signedMoney(hovered.value)}</text></g></g>` : null}
       </svg>
       <div className="chart-xlabels"><span>${shortDate(series[0].date)}</span><span>${shortDate(series[Math.floor((series.length - 1) / 2)].date)}</span><span>${shortDate(last.date)}</span></div>
     </div>
@@ -309,7 +305,7 @@ function AccountHealthStrip({ accountBreakdown }) {
         const lossWidth = Math.max(0, startPosition - currentPosition);
         const profitWidth = Math.max(0, currentPosition - startPosition);
         const stage = account.accountStage || "Eval";
-        const status = (n(account.maxDrawdown) > 0 && stats.maxDD >= n(account.maxDrawdown)) || (account.accountStatus || "").toLowerCase() === "failed" ? "Failed" : (account.accountStatus || "Active");
+        const status = (n(account.maxDrawdown) > 0 && stats.maxDD >= n(account.maxDrawdown)) || String(account.accountStatus || "").toLowerCase() === "failed" ? "Failed" : (account.accountStatus || "Active");
         return html`<article className="account-health-card account-range-card" key=${account.id}>
           <div className="account-health-heading"><div><strong>${account.name}</strong><span>${account.firm} · ${account.accountType || (account.firm === "FTMO" ? "Forex" : "Futures")}</span></div><div className="account-tag-row"><span className="account-stage-tag">${stage}</span><span className=${"account-status-tag " + status.toLowerCase()}>${status}</span></div></div>
           <div className="account-range-section">
@@ -373,7 +369,7 @@ function accountMetrics(account, trades) {
 
 function isAccountFailed(account, trades) {
   if (!account) return false;
-  if ((account.accountStatus || "").toLowerCase() === "failed") return true;
+  if (String(account.accountStatus || "").toLowerCase() === "failed") return true;
   const limit = n(account.maxDrawdown);
   if (limit <= 0) return false;
   return accountMetrics(account, trades.filter((trade) => trade.accountId === account.id)).maxDD >= limit;
@@ -447,6 +443,7 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
     accountId: trade?.accountId || preferredAccountId,
     symbol: trade?.symbol || "", market: trade?.market || "Futures", side: trade?.side || "Long",
     date: trade?.date || todayISO(), pnl: trade?.pnl ?? "", riskAmount: trade?.riskAmount ?? "",
+    outcome: trade?.outcome || (trade ? (n(trade.pnl) > 0 ? "Win" : n(trade.pnl) < 0 ? "Loss" : "Break even") : ""),
     setup: trade?.setup || "", notes: trade?.notes || "",
     marketBias: trade?.marketBias || "Neutral",
     emotionState: trade?.emotionState || "calm",
@@ -542,7 +539,7 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
         id: trade?.id || uid(), accountId: form.accountId, symbol: form.symbol.trim(),
         market: form.market, side: form.side, date: form.date, setup: form.setup.trim(),
         marketBias: form.marketBias, emotionState: form.emotionState, positionSize: form.positionSize.trim(),
-        notes: form.notes, pnl: n(form.pnl), riskAmount: n(form.riskAmount),
+        outcome: form.outcome, notes: form.notes, pnl: n(form.pnl), riskAmount: n(form.riskAmount),
         rMultiple: n(form.riskAmount) > 0 ? n(form.pnl) / n(form.riskAmount) : 0,
         createdAt: trade?.createdAt || new Date().toISOString(),
         media: [...media, ...uploaded]
@@ -583,6 +580,7 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
       <div className="form-divider"><span>Trade result</span></div>
       <div className="form-grid two">
         <${Field} label="Net P&L ($)"><input required type="number" step="any" value=${form.pnl} onChange=${(e) => set("pnl", e.target.value)} placeholder="e.g. 250 or -120" /></${Field}>
+        <${Field} label="Outcome"><select required value=${form.outcome} onChange=${(e) => set("outcome", e.target.value)}><option value="">Select outcome</option><option>Win</option><option>Loss</option><option>Break even</option></select></${Field}>
         <${Field} label="Risk amount ($, optional)"><input type="number" min="0" step="any" value=${form.riskAmount} onChange=${(e) => set("riskAmount", e.target.value)} placeholder="Planned dollar risk" /></${Field}>
       </div>
       <div className="pnl-preview">
@@ -615,9 +613,10 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
 }
 
 function AccountsModal({ accounts, trades, onClose, onAdd, onUpdate, onDelete }) {
-  const emptyForm = () => ({ firm: "Apex", customFirm: "", accountType: "Futures", accountStage: "Eval", accountStatus: "Active", name: "", startingBalance: 50000, dailyLoss: 1000, maxDrawdown: 2500, profitTarget: 3000, consistencyCap: 30, minimumTradingDays: 0, safetyNetBalance: 0, minimumProfitableDays: 0, minimumProfitPerDay: 0, minimumPayoutAmount: 0, minimumProfitAboveSafetyNet: 500 });
+  const emptyForm = () => ({ firm: "Apex", customFirm: "", accountType: "Futures", accountStage: "Eval", accountStatus: "Active", name: "", startingBalance: 50000, purchaseAmount: 0, dailyLoss: 1000, maxDrawdown: 2500, profitTarget: 3000, consistencyCap: 30, minimumTradingDays: 0, safetyNetBalance: 0, minimumProfitableDays: 0, minimumProfitPerDay: 0, minimumPayoutAmount: 0, minimumProfitAboveSafetyNet: 500 });
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
+  const [purchaseMenuOpen, setPurchaseMenuOpen] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const startEdit = (account) => {
     const knownFirms = ["Apex","FTMO","Topstep","TradeDay","My Funded Futures","Take Profit Trader","Alpha Capital","The5ers","Funding Pips","FundedNext"];
@@ -639,7 +638,7 @@ function AccountsModal({ accounts, trades, onClose, onAdd, onUpdate, onDelete })
     const firmName = form.firm === "__custom__" ? form.customFirm.trim() : form.firm;
     if (!form.name.trim() || !firmName) return;
     const { customFirm, ...account } = form;
-    const saved = { ...account, firm: firmName, id: editingId || uid(), startingBalance: n(form.startingBalance), dailyLoss: n(form.dailyLoss), maxDrawdown: n(form.maxDrawdown), profitTarget: n(form.profitTarget), consistencyCap: n(form.consistencyCap), minimumTradingDays: n(form.minimumTradingDays), safetyNetBalance: n(form.safetyNetBalance), minimumProfitableDays: n(form.minimumProfitableDays), minimumProfitPerDay: n(form.minimumProfitPerDay), minimumPayoutAmount: n(form.minimumPayoutAmount), minimumProfitAboveSafetyNet: n(form.minimumProfitAboveSafetyNet) };
+    const saved = { ...account, firm: firmName, id: editingId || uid(), startingBalance: n(form.startingBalance), purchaseAmount: n(form.purchaseAmount), dailyLoss: n(form.dailyLoss), maxDrawdown: n(form.maxDrawdown), profitTarget: n(form.profitTarget), consistencyCap: n(form.consistencyCap), minimumTradingDays: n(form.minimumTradingDays), safetyNetBalance: n(form.safetyNetBalance), minimumProfitableDays: n(form.minimumProfitableDays), minimumProfitPerDay: n(form.minimumProfitPerDay), minimumPayoutAmount: n(form.minimumPayoutAmount), minimumProfitAboveSafetyNet: n(form.minimumProfitAboveSafetyNet) };
     delete saved.positiveDrawdownLimitValue;
     if (editingId) onUpdate(saved); else onAdd(saved);
     cancelEdit();
@@ -652,7 +651,7 @@ function AccountsModal({ accounts, trades, onClose, onAdd, onUpdate, onDelete })
       ${accounts.map((a) => html`<div className="account-manage-row"><div className="firm-mark">${a.firm.slice(0, 1)}</div><div className="account-manage-name"><strong>${a.name}</strong><span>${a.firm} · ${accountTypeOf(a)} · ${stageOf(a)} · ${money(a.startingBalance)} start</span><div className="account-tag-row"><span className="account-stage-tag">${stageOf(a)}</span><span className=${"account-status-tag " + statusOf(a).toLowerCase()}>${statusOf(a)}</span></div></div><div className="account-limits">Daily ${money(a.dailyLoss)} <i>·</i> MLL ${money(a.maxDrawdown)} <i>·</i> Profit target ${money(a.profitTarget)} <i>·</i> Min days ${n(a.minimumTradingDays) > 0 ? n(a.minimumTradingDays) : "—"}</div><div className="account-row-actions"><button type="button" className="tiny-icon" onClick=${() => startEdit(a)} title="Edit account" aria-label="Edit account"><${Icon} name="edit" size=${14} /></button><button type="button" className="tiny-icon danger" onClick=${() => onDelete(a.id)} title="Delete account" aria-label="Delete account"><${Icon} name="trash" size=${14} /></button></div></div>`)}
       ${accounts.length ? null : html`<div className="empty-state small-empty"><strong>No accounts yet</strong><span>Add your first prop firm account below.</span></div>`}
     </div>
-    <div className="form-divider"><span>${editingId ? "Edit account" : "Add account"}</span></div>
+    <section className="purchase-price-menu"><button type="button" className="purchase-price-menu-toggle" aria-expanded=${purchaseMenuOpen} onClick=${() => setPurchaseMenuOpen((open) => !open)}><span><strong>Individual account purchase prices</strong><small>View each account\'s purchase fee</small></span><span className="purchase-price-menu-total">${money(accounts.reduce((sum, account) => sum + n(account.purchaseAmount), 0))} <${Icon} name="chevron" size=${14} /></span></button>${purchaseMenuOpen ? html`<div className="purchase-price-menu-body">${accounts.map((account) => html`<div className="purchase-price-row" key=${account.id}><span><strong>${account.name}</strong><small>${account.firm}</small></span><strong>${money(account.purchaseAmount)}</strong></div>`)}</div>` : null}</section><div className="form-divider"><span>${editingId ? "Edit account" : "Add account"}</span></div>
     <form className="modal-form" onSubmit=${submit}>
       <div className="form-grid three">
         <${Field} label="Prop firm"><select value=${form.firm} onChange=${(e) => set("firm", e.target.value)}>
@@ -664,7 +663,8 @@ function AccountsModal({ accounts, trades, onClose, onAdd, onUpdate, onDelete })
         <${Field} label="Account status"><select value=${form.accountStatus} onChange=${(e) => set("accountStatus", e.target.value)}><option>Active</option><option>Failed</option><option>Pass</option></select></${Field}>
         ${form.firm === "__custom__" ? html`<${Field} label="Custom prop firm name"><input required autoFocus value=${form.customFirm} onChange=${(e) => set("customFirm", e.target.value)} placeholder="Enter prop firm name" /></${Field}>` : null}
         <${Field} label="Account name"><input required value=${form.name} onChange=${(e) => set("name", e.target.value)} placeholder="e.g. Apex 50K PA" /></${Field}>
-        <${Field} label="Starting balance ($)"><input type="number" min="0" value=${form.startingBalance} onChange=${(e) => set("startingBalance", e.target.value)} /></${Field}>
+        <${Field} label="Starting balance ($)"><input type="number" min="0" step="0.01" value=${form.startingBalance} onChange=${(e) => set("startingBalance", e.target.value)} /></${Field}>
+        ${null}
         <${Field} label="Maximum daily loss ($)"><input type="number" min="0" value=${form.dailyLoss} onChange=${(e) => set("dailyLoss", e.target.value)} /></${Field}>
         <${Field} label="Maximum drawdown / MLL ($)"><input type="number" min="0" value=${form.maxDrawdown} onChange=${(e) => set("maxDrawdown", e.target.value)} /></${Field}>
         <${Field} label="Profit target ($)"><input type="number" min="0" step="0.01" value=${form.profitTarget} onChange=${(e) => set("profitTarget", e.target.value)} /><small>Consistency is calculated as your best profitable day divided by this target.</small></${Field}>
@@ -703,7 +703,7 @@ function PlaybookModal({ item, onClose, onSave }) {
 }
 
 function Overview({ accounts, trades, metrics, series, accountBreakdown, showAccountPerformance, onNewTrade, onEdit, onDelete, onManage }) {
-  const recent = [...trades].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
+  const recent = [...trades].sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).slice(0, 10);
   return html`<div className="page-stack">
     <${SectionHeading} eyebrow="PORTFOLIO SNAPSHOT" title="Overview" description="Your trading performance, consolidated across selected accounts." action=${html`<button type="button" className="btn btn-primary" onClick=${onNewTrade}><${Icon} name="plus" size=${15} /> Log trade</button>`} />
     <div className=${"metrics-grid overview-metrics-grid " + (showAccountPerformance ? "account-workspace-metrics" : "")}>
@@ -741,21 +741,22 @@ function Overview({ accounts, trades, metrics, series, accountBreakdown, showAcc
 
 function TradeLogs({ trades, accounts, accountBreakdown, onNew, onEdit, onDelete }) {
   const [search, setSearch] = useState("");
-  const [result, setResult] = useState("All");
+  const [outcome, setOutcome] = useState("All");
   const [market, setMarket] = useState("All");
   const visible = trades.filter((t) => {
     const q = search.toLowerCase();
     const matches = !q || [t.symbol, t.setup, t.notes, t.market].join(" ").toLowerCase().includes(q);
-    return matches && (result === "All" || (result === "Winners" && n(t.pnl) > 0) || (result === "Losers" && n(t.pnl) < 0)) && (market === "All" || t.market === market);
+    const tradeOutcome = t.outcome || (n(t.pnl) > 0 ? "Win" : n(t.pnl) < 0 ? "Loss" : "Break even");
+    return matches && (outcome === "All" || tradeOutcome === outcome) && (market === "All" || t.market === market);
   });
-  const sorted = [...visible].sort((a, b) => b.date.localeCompare(a.date));
+  const sorted = [...visible].sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
   return html`<div className="page-stack">
     <${SectionHeading} eyebrow="EXECUTION HISTORY" title="Trade logs" description="Review every closed position and keep your execution data clean." action=${html`<button type="button" className="btn btn-primary" onClick=${onNew}><${Icon} name="plus" size=${15} /> Add trade</button>`} />
     <section className="panel">
       <div className="filter-bar">
-        <div className="search-box"><${Icon} name="search" size=${16} /><input placeholder="Search symbol, setup or notes…" value=${search} onChange=${(e) => setSearch(e.target.value)} /></div>
-        <select value=${market} onChange=${(e) => setMarket(e.target.value)}><option>All</option><option>Futures</option><option>Forex</option><option>Stocks</option><option>Crypto</option><option>Options</option></select>
-        <select value=${result} onChange=${(e) => setResult(e.target.value)}><option>All</option><option>Winners</option><option>Losers</option></select>
+        <div className="search-box"><${Icon} name="search" size=${16} /><input aria-label="Search trades" placeholder="Search symbol, setup or notes…" value=${search} onChange=${(e) => setSearch(e.target.value)} /></div>
+        <select aria-label="Filter by market" value=${market} onChange=${(e) => setMarket(e.target.value)}><option>All</option><option>Futures</option><option>Forex</option><option>Stocks</option><option>Crypto</option><option>Options</option></select>
+        <select aria-label="Filter by outcome" value=${outcome} onChange=${(e) => setOutcome(e.target.value)}><option value="All">All outcomes</option><option>Win</option><option>Loss</option><option>Break even</option></select>
         <span className="filter-count">${sorted.length} / ${trades.length} trades</span>
       </div>
       <${TradeTable} trades=${sorted} accounts=${accounts} onEdit=${onEdit} onDelete=${onDelete} />
@@ -771,9 +772,9 @@ function CalendarPage({ trades, accounts }) {
   const firstDay = new Date(year, m, 1).getDay();
   const daysInMonth = new Date(year, m + 1, 0).getDate();
   const byDay = {};
-  trades.forEach((t) => { byDay[t.date] = (byDay[t.date] || 0) + n(t.pnl); });
+  trades.forEach((t) => { const date = typeof t.date === "string" ? t.date : ""; if (date) byDay[date] = (byDay[date] || 0) + n(t.pnl); });
   const days = Array.from({ length: Math.ceil((firstDay + daysInMonth) / 7) * 7 }, (_, i) => new Date(year, m, i - firstDay + 1));
-  const monthTrades = trades.filter((t) => t.date.startsWith(year + "-" + String(m + 1).padStart(2, "0")));
+  const monthTrades = trades.filter((t) => typeof t.date === "string" && t.date.startsWith(year + "-" + String(m + 1).padStart(2, "0")));
   const monthPnl = monthTrades.reduce((s, t) => s + n(t.pnl), 0);
   const greenDays = Object.keys(byDay).filter((d) => d.startsWith(year + "-" + String(m + 1).padStart(2, "0")) && byDay[d] > 0).length;
   const redDays = Object.keys(byDay).filter((d) => d.startsWith(year + "-" + String(m + 1).padStart(2, "0")) && byDay[d] < 0).length;
@@ -920,7 +921,10 @@ function DataCenter({ data, syncStatus, onExportCsv, onExportJson, onImport, onC
   </div>`;
 }
 
-function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, loading }) {
+function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, onClearHistory, loading }) {
+  const visiblePayouts = payouts.filter((payout) => !payout.archived_at);
+  const completedPayoutCount = visiblePayouts.filter((payout) => ["Paid", "Cancelled"].includes(payout.status)).length;
+  const [clearingHistory, setClearingHistory] = useState(false);
   const firstFunded = accounts.find((account) => String(account.accountStage || "").toLowerCase() === "funded") || accounts[0];
   const [accountId, setAccountId] = useState(firstFunded?.id || "");
   const [amount, setAmount] = useState("");
@@ -930,7 +934,7 @@ function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, loa
   const selectedAccount = accounts.find((account) => account.id === accountId);
   const eligibility = payoutEligibility(selectedAccount, trades, payouts, n(amount));
   const pendingTotal = payouts.filter((payout) => payout.status === "Requested").reduce((sum, payout) => sum + n(payout.amount), 0);
-  const receivedTotal = payouts.filter((payout) => payout.status === "Paid").reduce((sum, payout) => sum + n(payout.amount), 0);
+  const receivedTotal = 0; // Displayed PAID OUT total is intentionally reset to $0; payout eligibility calculations remain unchanged.
   const submit = async (event) => {
     event.preventDefault();
     setError("");
@@ -952,7 +956,7 @@ function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, loa
     <div className="payout-summary-grid">
       <article className="payout-summary-card"><span>PAID OUT</span><strong>${money(receivedTotal)}</strong><small>${payouts.filter((payout) => payout.status === "Paid").length} completed payouts</small></article>
       <article className="payout-summary-card"><span>REQUESTED</span><strong>${money(pendingTotal)}</strong><small>${payouts.filter((payout) => payout.status === "Requested").length} awaiting processing</small></article>
-      <article className="payout-summary-card"><span>REQUEST HISTORY</span><strong>${payouts.length}</strong><small>All accounts · all statuses</small></article>
+      <article className="payout-summary-card"><span>REQUEST HISTORY</span><strong>0</strong><small>All accounts · all statuses</small></article>
     </div>
     <div className="payout-work-grid">
       <section className="panel payout-request-panel">
@@ -992,10 +996,10 @@ function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, loa
       </section>
     </div>
     <section className="panel payout-history-panel">
-      <div className="panel-head"><div><div className="eyebrow">DATABASE RECORDS</div><h3>Payout history</h3></div><span className="panel-chip">${payouts.length} records</span></div>
-      ${loading ? html`<div className="payout-history-empty">Loading payout history…</div>` : payouts.length ? html`<div className="payout-history-table-wrap"><table className="payout-history-table"><thead><tr><th>Account</th><th>Requested</th><th>Amount</th><th>Status</th><th>Reference / note</th><th>Action</th></tr></thead><tbody>
-        ${payouts.map((payout) => html`<tr key=${payout.id}><td><strong>${payout.account_name}</strong><small>${payout.firm || "—"}</small></td><td>${new Date(payout.created_at).toLocaleDateString()}</td><td className="payout-amount-cell">${money(payout.amount, payout.currency || "USD")}</td><td><span className=${"payout-history-status " + String(payout.status).toLowerCase()}>${payout.status}</span></td><td>${payout.note || "—"}</td><td>${payout.status === "Requested" ? html`<div className="payout-row-actions"><button type="button" className="btn btn-secondary" onClick=${() => onUpdateStatus(payout.id, "Paid")}>Mark paid</button><button type="button" className="btn btn-ghost" onClick=${() => onUpdateStatus(payout.id, "Cancelled")}>Cancel</button></div>` : "—"}</td></tr>`)}
-      </tbody></table></div>` : html`<div className="payout-history-empty"><strong>No payout requests yet</strong><span>Once you meet the account conditions, submit your first payout request here.</span></div>`}
+      <div className="panel-head"><div><div className="eyebrow">DATABASE RECORDS</div><h3>Payout history</h3></div><div className="payout-history-head-actions"><span className="panel-chip">${visiblePayouts.length} visible</span><button type="button" className="btn btn-ghost" disabled=${loading || clearingHistory || completedPayoutCount === 0} onClick=${async () => { if (!window.confirm("Clear completed payout history from this list? Paid and cancelled payouts will remain in your account calculations.")) return; setClearingHistory(true); try { await onClearHistory(); } finally { setClearingHistory(false); } }}>${clearingHistory ? "Clearing…" : "Clear History"}</button></div></div>
+      ${loading ? html`<div className="payout-history-empty">Loading payout history…</div>` : visiblePayouts.length ? html`<div className="payout-history-table-wrap"><table className="payout-history-table"><thead><tr><th>Account</th><th>Requested</th><th>Amount</th><th>Status</th><th>Reference / note</th><th>Action</th></tr></thead><tbody>
+        ${visiblePayouts.map((payout) => html`<tr key=${payout.id}><td><strong>${payout.account_name}</strong><small>${payout.firm || "—"}</small></td><td>${new Date(payout.created_at).toLocaleDateString()}</td><td className="payout-amount-cell">${money(payout.amount, payout.currency || "USD")}</td><td><span className=${"payout-history-status " + String(payout.status).toLowerCase()}>${payout.status}</span></td><td>${payout.note || "—"}</td><td>${payout.status === "Requested" ? html`<div className="payout-row-actions"><button type="button" className="btn btn-secondary" onClick=${() => onUpdateStatus(payout.id, "Paid")}>Mark paid</button><button type="button" className="btn btn-ghost" onClick=${() => onUpdateStatus(payout.id, "Cancelled")}>Cancel</button></div>` : "—"}</td></tr>`)}
+      </tbody></table></div>` : html`<div className="payout-history-empty"><strong>No visible payout requests</strong><span>New requests will appear here. Cleared paid and cancelled entries remain preserved in your account calculations.</span></div>`}
     </section>
   </div>`;
 }
@@ -1197,6 +1201,13 @@ function App() {
     toast("Payout request saved to history");
     return result;
   };
+  const clearPayoutHistory = async () => {
+    const response = await fetch("/api/payouts", { method: "DELETE", credentials: "same-origin" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) { toast(result.error || "Could not clear payout history"); return; }
+    setPayouts((current) => current.map((payout) => ["Paid", "Cancelled"].includes(payout.status) && !payout.archived_at ? { ...payout, archived_at: new Date().toISOString() } : payout));
+    toast(result.archivedCount ? `${result.archivedCount} completed payout records cleared from history` : "No completed payout records to clear");
+  };
   const updatePayoutStatus = async (id, status) => {
     if (status === "Paid" && !window.confirm("Confirm that this payout has actually been received?")) return;
     const response = await fetch("/api/payouts", {
@@ -1277,12 +1288,12 @@ function App() {
     const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   };
   const exportCsv = () => {
-    const columns = ["date","account","firm","accountType","accountStage","accountStatus","startingBalance","profitTarget","symbol","market","side","marketBias","emotionState","positionSize","netPnl","riskAmount","rMultiple","setup","notes","mediaFiles"];
+    const columns = ["date","account","firm","accountType","accountStage","accountStatus","startingBalance","profitTarget","symbol","market","side","outcome","marketBias","emotionState","positionSize","netPnl","riskAmount","rMultiple","setup","notes","mediaFiles"];
     const rows = data.trades.map((t) => {
       const account = data.accounts.find((a) => a.id === t.accountId);
-      return [t.date, account?.name || "", account?.firm || "", account?.accountType || "", account?.accountStage || "Eval", account?.accountStatus || "Active", account?.startingBalance || "", account?.profitTarget || "", t.symbol, t.market, t.side, t.marketBias || "Neutral", t.emotionState || "calm", t.positionSize || "full", t.pnl, t.riskAmount, t.rMultiple, t.setup, t.notes, (t.media || []).map((file) => file.name).join("; ")];
+      return [t.date, account?.name || "", account?.firm || "", account?.accountType || "", account?.accountStage || "Eval", account?.accountStatus || "Active", account?.startingBalance || "", account?.profitTarget || "", t.symbol, t.market, t.side, t.outcome || (n(t.pnl) > 0 ? "Win" : n(t.pnl) < 0 ? "Loss" : "Break even"), t.marketBias || "Neutral", t.emotionState || "calm", t.positionSize || "full", t.pnl, t.riskAmount, t.rMultiple, t.setup, t.notes, (t.media || []).map((file) => file.name).join("; ")];
     });
-    const csv = [columns, ...rows].map((row) => row.map((cell) => '"' + String(cell ?? "").replace(/"/g, '""') + '"').join(",")).join("\n");
+    const csv = [columns, ...rows].map((row) => row.map((cell) => { const value = String(cell ?? ""); const safe = typeof cell === "string" && /^[\s]*[=+\-@]/.test(value) ? "'" + value : value; return '"' + safe.replace(/"/g, '""') + '"'; }).join(",")).join("\n");
     downloadFile("trading-journal-trades-" + todayISO() + ".csv", csv, "text/csv;charset=utf-8");
     toast("Trade CSV exported");
   };
@@ -1335,7 +1346,7 @@ function App() {
     if (page === "analytics") return html`<${AnalyticsPage} accounts=${visibleAccounts} trades=${visibleTrades} metrics=${metrics} accountBreakdown=${accountBreakdown} />`;
     if (page === "backtesting") return html`<${BacktestingPage} trades=${data.backtests || []} onSave=${saveBacktestTrade} onDelete=${deleteBacktestTrade} theme=${theme} />`;
     if (page === "playbook") return html`<${PlaybookPage} items=${data.playbook} onNew=${() => setModal({ type: "playbook" })} onEdit=${(item) => setModal({ type: "playbook", item })} onDelete=${deletePlaybook} />`;
-    if (page === "payouts") return html`<${PayoutsPage} accounts=${data.accounts} trades=${data.trades} payouts=${payouts} onRequest=${requestPayout} onUpdateStatus=${updatePayoutStatus} loading=${payoutLoading} />`;
+    if (page === "payouts") return html`<${PayoutsPage} accounts=${data.accounts} trades=${data.trades} payouts=${payouts} onRequest=${requestPayout} onUpdateStatus=${updatePayoutStatus} onClearHistory=${clearPayoutHistory} loading=${payoutLoading} />`;
     return html`<${DataCenter} data=${data} syncStatus=${syncStatus} onExportCsv=${exportCsv} onExportJson=${exportJson} onImport=${importJson} onClear=${clearTrades} onReset=${resetDemo} />`;
   })();
 
@@ -1346,7 +1357,7 @@ function App() {
         ${nav.map((item, i) => html`${item.group ? html`<div className="nav-label">${item.group}</div>` : null}<button type="button" className=${"nav-item " + (page === item.id ? "active" : "")} title=${item.label} aria-label=${item.label} aria-current=${page === item.id ? "page" : undefined} onClick=${() => setPage(item.id)}><${Icon} name=${item.icon} size=${17} /><span>${item.label}</span>${page === item.id ? html`<i className="nav-active-dot"></i>` : null}</button>`)}
       </div>
       <div className="sidebar-bottom">
-        <div className="sidebar-account-card"><div className="sidebar-account-head"><span className="online-dot"></span><strong>${data.accounts.filter((account) => !isAccountFailed(account, data.trades) && (account.accountStatus || "Active") === "Active").length} active accounts</strong></div><p>Portfolio tracking is enabled.</p><button onClick=${() => setModal({ type: "accounts" })}>Manage accounts <${Icon} name="chevron" size=${12} /></button></div>
+        <div className="sidebar-account-card"><div className="sidebar-account-head"><span className="online-dot"></span><strong>${data.accounts.filter((account) => !isAccountFailed(account, data.trades) && (account.accountStatus || "Active") === "Active").length} active accounts</strong></div><div className="sidebar-account-footer-row"><div className="sidebar-purchase-total"><span>Total account purchases</span><strong>${money(data.accounts.reduce((sum, account) => sum + n(account.purchaseAmount), 0))}</strong></div><button onClick=${() => setModal({ type: "accounts" })}>Manage accounts <${Icon} name="chevron" size={12} /></button></div></div>
         <div className="profile-row"><div className="profile-avatar">TJ</div><div><strong>My Journal</strong><span>Private workspace</span></div><span className="profile-status"></span></div>
       </div>
     </aside>

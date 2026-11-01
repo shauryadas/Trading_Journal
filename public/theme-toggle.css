@@ -3,7 +3,7 @@
 .theme-toggle:hover{border-color:#66ff99;background:#151515}
 .theme-toggle svg{flex:none}
 @media(max-width:680px){.theme-toggle{height:30px;min-width:32px;padding:0 8px}.theme-toggle span{display:none}.topbar-actions{gap:7px}}
-html[data-theme="light"]{color-scheme:light!important;--bg:#f5f7f5;--panel:#fff;--panel-2:#f8faf8;--panel-3:#edf2ee;--surface:#fff;--surface-soft:#f5f8f5;--line:#e2e8e3;--line-strong:#d1dbd3;--text:#26342b;--muted:#59675e;--dim:#66736a;--green:#456c52;--green-soft:#eaf2ec;--red:#a64f4f;--red-soft:#f8eded;--blue:#4f6f8d;--blue-soft:#edf2f7;--amber:#85652f;--amber-soft:#f7f2e8;--text-primary:var(--text);--text-secondary:var(--muted);--text-tertiary:var(--dim);--border-subtle:var(--line);--border-strong:var(--line-strong);--success:var(--green);--success-surface:var(--green-soft);--danger:var(--red);--danger-surface:var(--red-soft);--warning:var(--amber);--warning-surface:var(--amber-soft);--focus-ring:var(--blue);--control-bg:var(--surface);--control-border:var(--line-strong)}
+html[data-theme="light"]{color-scheme:light!important}
 html[data-theme="light"] body,html[data-theme="light"] #root{background:#f5f7f5!important;color:#26342b!important}
 html[data-theme="light"] .app-shell,html[data-theme="light"] .main-area{background:#f5f7f5!important;color:#26342b!important}
 html[data-theme="light"] .sidebar{background:#fff!important;border-color:#e2e8e3!important}
@@ -213,3 +213,8 @@ button:focus-visible,a:focus-visible,[role="button"]:focus-visible{outline:2px s
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* Consistent keyboard focus, including the search input whose base rule resets outline. */
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--focus-ring,#4f6f8d)!important;outline-offset:2px!important}
+.search-box:focus-within{outline:2px solid var(--focus-ring,#4f6f8d)!important;outline-offset:2px!important;border-color:var(--focus-ring,#4f6f8d)!important}
+@media(forced-colors:active){button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.search-box:focus-within{outline:2px solid Highlight!important;outline-offset:2px!important}}

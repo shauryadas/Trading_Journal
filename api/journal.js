@@ -8,18 +8,23 @@ export const methods = ["GET", "PUT"];
 
 export default async function (req, res) {
   try {
+    const ownerId = String(req.user?.id || "");
+    if (!ownerId) return res.status(401).json({ error: "A signed-in journal user is required." });
     if (req.method === "GET") {
       const { rows } = await db.query(
-        "SELECT payload, updated_at FROM journal_data"
+        "SELECT payload, updated_at FROM journal_data WHERE owner_id = $1",
+        [ownerId]
       );
       const candidate = rows[0]?.payload;
       const stored = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : null;
       const storedTrades = Array.isArray(stored?.trades) ? stored.trades : [];
+      const mediaPrefixes = ["trade-media/user-" + Buffer.from(ownerId).toString("base64url") + "/"];
+      if (req.member?.id != null) mediaPrefixes.push("trade-media/" + String(req.member.id) + "/");
       const payload = stored ? {
         ...stored,
         trades: await Promise.all(storedTrades.filter(trade => trade && typeof trade === "object" && !Array.isArray(trade)).map(async trade => ({
           ...trade,
-          media: await Promise.all((Array.isArray(trade.media) ? trade.media : []).filter(file => file && typeof file === "object" && file.key).map(async file => ({
+          media: await Promise.all((Array.isArray(trade.media) ? trade.media : []).filter(file => file && typeof file === "object" && typeof file.key === "string" && mediaPrefixes.some(prefix => file.key.startsWith(prefix))).map(async file => ({
             ...file,
             url: await storage.url(file.key).catch(() => null)
           })))
@@ -29,7 +34,7 @@ export default async function (req, res) {
       return res.json({
         payload,
         updatedAt: rows[0]?.updated_at || null,
-        ownerId: req.user?.id ? String(req.user.id) : null
+        ownerId
       });
     }
 
@@ -50,13 +55,11 @@ export default async function (req, res) {
     if (Buffer.byteLength(serialized, "utf8") > 2_000_000) {
       return res.status(413).json({ error: "Journal backup is too large." });
     }
-    if (!req.user?.id) return res.status(401).json({ error: "A signed-in journal user is required." });
-
     // Bind the row owner explicitly. This keeps inserts/upserts aligned with
     // the end-user identity enforced by the table's own-row policy.
     const { rows } = await db.query(
       "INSERT INTO journal_data (owner_id, payload, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (owner_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW() RETURNING updated_at",
-      [String(req.user.id), serialized]
+      [ownerId, serialized]
     );
 
     return res.json({ ok: true, updatedAt: rows[0]?.updated_at || null });

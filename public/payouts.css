@@ -1,3 +1,4 @@
+.payout-history-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
 .payout-page{display:flex;flex-direction:column;gap:20px}
 .payout-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .payout-summary-card{background:var(--surface,#101820);border:1px solid var(--border,#273340);border-radius:12px;padding:17px 18px;display:flex;flex-direction:column;gap:8px;min-width:0}

@@ -1,7 +1,7 @@
 import { db } from "hatchable";
 
 export const access = "user";
-export const methods = ["GET", "POST", "PUT"];
+export const methods = ["GET", "POST", "PUT", "DELETE"];
 
 function num(value) {
   const parsed = Number(value);
@@ -92,9 +92,12 @@ function evaluate(account, trades, payouts, requestAmount = 0) {
 
 export default async function (req, res) {
   try {
+    const ownerId = String(req.user?.id || "");
+    if (!ownerId) return res.status(401).json({ error: "A signed-in payout user is required." });
     if (req.method === "GET") {
       const { rows } = await db.query(
-        "SELECT id, account_id, account_name, firm, amount, currency, status, eligibility_snapshot, note, created_at, updated_at FROM payout_requests ORDER BY created_at DESC LIMIT 200"
+        "SELECT id, account_id, account_name, firm, amount, currency, status, eligibility_snapshot, note, created_at, updated_at, archived_at FROM payout_requests WHERE owner_id = $1 ORDER BY created_at DESC LIMIT 500",
+        [ownerId]
       );
       return res.json({ payouts: rows });
     }
@@ -107,7 +110,7 @@ export default async function (req, res) {
         return res.status(400).json({ error: "Choose an account and enter a payout amount greater than zero." });
       }
 
-      const journalResult = await db.query("SELECT payload, updated_at FROM journal_data LIMIT 1");
+      const journalResult = await db.query("SELECT payload, updated_at FROM journal_data WHERE owner_id = $1", [ownerId]);
       const payload = journalResult.rows[0]?.payload;
       const journalUpdatedAt = journalResult.rows[0]?.updated_at;
       if (!payload || !Array.isArray(payload.accounts) || !Array.isArray(payload.trades) || !journalUpdatedAt) {
@@ -116,7 +119,7 @@ export default async function (req, res) {
       const account = payload.accounts.find((item) => item && typeof item === "object" && item.id === accountId);
       if (!account) return res.status(404).json({ error: "That account was not found in your journal." });
 
-      const payoutResult = await db.query("SELECT id, account_id, amount, status FROM payout_requests ORDER BY created_at DESC");
+      const payoutResult = await db.query("SELECT id, account_id, amount, status FROM payout_requests WHERE owner_id = $1 ORDER BY created_at DESC", [ownerId]);
       const result = evaluate(account, payload.trades, payoutResult.rows, amount);
       if (!result.eligible) {
         return res.status(409).json({ error: "This account does not meet every required payout condition. Check all account rules and the requested amount.", eligibility: result });
@@ -136,8 +139,6 @@ export default async function (req, res) {
         availableAtRequest: result.available,
         accountBalanceAfterRequest: result.metrics.balanceAfterPayouts - amount
       };
-      const ownerId = String(req.user?.id || "");
-      if (!ownerId) return res.status(401).json({ error: "A signed-in payout user is required." });
       // Lock this user's journal row while reserving a payout. Concurrent
       // requests then re-check the committed total inside the same transaction.
       const committedSql = "COALESCE((SELECT SUM(amount) FROM payout_requests WHERE owner_id = $1 AND account_id = $2 AND status IN ('Requested','Paid')), 0)";
@@ -159,7 +160,8 @@ export default async function (req, res) {
       let finalAvailableAfterRequest = Math.max(0, result.available - amount);
       try {
         const latestPayouts = await db.query(
-          "SELECT id, account_id, amount, status FROM payout_requests ORDER BY created_at DESC"
+          "SELECT id, account_id, amount, status FROM payout_requests WHERE owner_id = $1 ORDER BY created_at DESC",
+          [ownerId]
         );
         const latestState = evaluate(account, payload.trades, latestPayouts.rows, 0);
         finalBalanceAfterRequest = latestState.metrics.balanceAfterPayouts;
@@ -175,14 +177,22 @@ export default async function (req, res) {
       });
     }
 
+    if (req.method === "DELETE") {
+      const archived = await db.query(
+        "UPDATE payout_requests SET archived_at = NOW(), updated_at = NOW() WHERE owner_id = $1 AND archived_at IS NULL AND status IN ('Paid', 'Cancelled') RETURNING id",
+        [ownerId]
+      );
+      return res.json({ archivedCount: archived.rows.length });
+    }
+
     const id = Number(req.body?.id);
     const status = String(req.body?.status || "");
     if (!Number.isSafeInteger(id) || id <= 0 || !["Paid", "Cancelled"].includes(status)) {
       return res.status(400).json({ error: "A valid payout ID and Paid or Cancelled status are required." });
     }
     const updated = await db.query(
-      "UPDATE payout_requests SET status = $1, updated_at = NOW() WHERE id = $2 AND status = 'Requested' RETURNING id, account_id, account_name, firm, amount, currency, status, eligibility_snapshot, note, created_at, updated_at",
-      [status, id]
+      "UPDATE payout_requests SET status = $1, updated_at = NOW() WHERE id = $2 AND owner_id = $3 AND status = 'Requested' RETURNING id, account_id, account_name, firm, amount, currency, status, eligibility_snapshot, note, created_at, updated_at",
+      [status, id, ownerId]
     );
     if (!updated.rows.length) return res.status(404).json({ error: "Pending payout request not found." });
     return res.json({ payout: updated.rows[0] });

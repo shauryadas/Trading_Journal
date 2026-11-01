@@ -75,6 +75,10 @@ function TradingViewChart({ symbol, interval, theme }) {
     script.type = "text/javascript";
     script.async = true;
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+    script.onerror = () => {
+      widget.className = "bt-tv-loading";
+      widget.textContent = "TradingView could not load. Use the Open TradingView link above to continue."; 
+    };
     script.textContent = JSON.stringify({
       autosize: true, symbol: symbol || "NASDAQ:AAPL", interval: interval || "15",
       timezone: "Etc/UTC", theme: theme === "light" ? "light" : "dark",

@@ -342,3 +342,12 @@ body,.app-shell{font-size:15px!important}
   .account-range-metric span{font-size:8px}
   .account-range-end strong{font-size:11px}
 }
+
+/* Trade outcome labels */
+.outcome-pill{display:inline-block;padding:4px 7px;border-radius:5px;font-size:10px;font-weight:600;white-space:nowrap}
+.outcome-pill.win{color:#66ff99;background:rgba(102,255,153,.1)}
+.outcome-pill.loss{color:#ff7777;background:rgba(255,119,119,.1)}
+.outcome-pill.break-even{color:#e6c66b;background:rgba(230,198,107,.1)}
+html[data-theme="light"] .outcome-pill.win{color:#477653;background:#edf4ee}
+html[data-theme="light"] .outcome-pill.loss{color:#af5b5b;background:#f8eeee}
+html[data-theme="light"] .outcome-pill.break-even{color:#876b25;background:#f8f3e5}
