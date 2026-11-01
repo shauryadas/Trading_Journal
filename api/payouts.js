@@ -10,7 +10,7 @@ function num(value) {
 
 function evaluate(account, trades, payouts, requestAmount = 0) {
   const accountTrades = trades.filter((trade) => trade && typeof trade === "object" && trade.accountId === account.id);
-  const byDay = {};
+  const byDay = Object.create(null);
   for (const trade of accountTrades) {
     const date = String(trade.date || "");
     if (date) byDay[date] = (byDay[date] || 0) + num(trade.pnl);
@@ -57,7 +57,7 @@ function evaluate(account, trades, payouts, requestAmount = 0) {
   const activeOk = !failed && String(account.accountStatus || "Active").toLowerCase() === "active";
   const minDaysOk = minimumTradingDays <= 0 || days.length >= minimumTradingDays;
   const consistencyOk = consistencyCap > 0 && consistencyTarget > 0 && consistencyPct <= consistencyCap;
-  const minProfitDaysOk = minimumProfitableDays > 0 && minimumProfitPerDay > 0 && qualifyingProfitDays >= minimumProfitableDays;
+  const minProfitDaysOk = minimumProfitableDays <= 0 || (minimumProfitPerDay > 0 && qualifyingProfitDays >= minimumProfitableDays);
 
   const committed = payouts
     .filter((payout) => payout.account_id === account.id && ["Requested", "Paid"].includes(payout.status))
@@ -78,7 +78,7 @@ function evaluate(account, trades, payouts, requestAmount = 0) {
     { key: "days", label: "Minimum trading days", passed: minDaysOk, detail: minimumTradingDays > 0 ? days.length + " / " + minimumTradingDays + " distinct days" : "No minimum trading-day requirement configured" },
     { key: "consistency", label: "Consistency rule", passed: consistencyOk, detail: consistencyCap > 0 && consistencyTarget > 0 ? "$" + Math.max(0, ...positiveDays).toFixed(2) + " best day / $" + consistencyTarget.toFixed(2) + " profit target = " + consistencyPct.toFixed(1) + "% (max " + consistencyCap + "%)" : "Set a profit target and consistency cap" },
     { key: "safety", label: "Safety-net threshold", passed: safetyNetOk, detail: safetyNet > 0 ? "Balance after payouts $" + balanceAfterPayouts.toFixed(2) + " / threshold $" + safetyNet.toFixed(2) : "Set a Safety Net Threshold" },
-    { key: "profitDays", label: "Minimum profitable days", passed: minProfitDaysOk, detail: minimumProfitableDays > 0 && minimumProfitPerDay > 0 ? qualifyingProfitDays + " / " + minimumProfitableDays + " days with at least $" + minimumProfitPerDay.toFixed(2) + " profit (" + profitableDays + " green days total)" : "Set both minimum profitable days and minimum profit per day" },
+    { key: "profitDays", label: "Minimum profitable days", passed: minProfitDaysOk, detail: minimumProfitableDays <= 0 ? "No minimum profitable-day requirement configured" : minimumProfitPerDay > 0 ? qualifyingProfitDays + " / " + minimumProfitableDays + " days with at least $" + minimumProfitPerDay.toFixed(2) + " profit (" + profitableDays + " green days total)" : "Set a minimum profit per day" },
     { key: "minPayout", label: "Minimum payout amount", passed: minPayoutOk, detail: minimumPayoutAmount > 0 ? "Request must be at least $" + minimumPayoutAmount.toFixed(2) : "Set a minimum payout amount" }
   ];
 
@@ -104,9 +104,10 @@ export default async function (req, res) {
 
     if (req.method === "POST") {
       const accountId = String(req.body?.accountId || "").trim();
-      const amount = Math.round(num(req.body?.amount) * 100) / 100;
+      const rawAmount = Number(req.body?.amount);
+      const amount = Math.round(rawAmount * 100) / 100;
       const note = String(req.body?.note || "").trim().slice(0, 500);
-      if (!accountId || !Number.isFinite(amount) || amount < 0.01) {
+      if (!accountId || !Number.isFinite(rawAmount) || !Number.isFinite(amount) || amount < 0.01 || amount > 999999999999.99) {
         return res.status(400).json({ error: "Choose an account and enter a payout amount greater than zero." });
       }
 
