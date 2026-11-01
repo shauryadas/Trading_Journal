@@ -6,3 +6,8 @@ providers = ["email"]
 read = "own"
 write = "own"
 owner_column = "owner_id"
+
+[db.tables.payout_requests]
+read = "own"
+write = "own"
+owner_column = "owner_id"

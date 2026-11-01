@@ -1,0 +1,50 @@
+.bt-page{min-width:0}
+.bt-metrics{grid-template-columns:repeat(5,minmax(0,1fr))}
+.bt-chart-panel,.bt-entry-panel,.bt-history-panel,.bt-equity-panel{overflow:hidden}
+.bt-equity-chart{padding:8px 18px 14px;width:100%;box-sizing:border-box}
+.bt-equity-chart svg{display:block;width:100%;height:auto;max-height:270px;overflow:visible}
+.bt-equity-zero{stroke:rgba(255,255,255,.22);stroke-dasharray:4 4}
+.bt-equity-axis{stroke:rgba(255,255,255,.12)}
+.bt-equity-line{fill:none;stroke:#62d99b;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.bt-equity-label{fill:rgba(255,255,255,.48);font-size:10px}
+.bt-chart-head{align-items:flex-start}
+.bt-chart-head p,.bt-entry-panel .panel-head p{margin:6px 0 0;color:rgba(255,255,255,.55);font-size:11px;line-height:1.5}
+.bt-chart-head>a{flex:none;text-decoration:none}
+.bt-chart-controls{display:grid;grid-template-columns:minmax(180px,1fr) 180px;gap:12px;padding:0 18px 14px}
+.bt-chart-controls .field{min-width:0}
+.bt-tv-host{height:520px;min-height:360px;width:100%;background:#050505;border-top:1px solid #242424}
+.bt-tv-host .tradingview-widget-container{height:100%;width:100%}
+.bt-tv-host .tradingview-widget-copyright{height:26px;padding:4px 12px;text-align:right;font-size:10px;color:rgba(255,255,255,.42)}
+.bt-tv-host .tradingview-widget-copyright a{color:rgba(255,255,255,.55)}
+.bt-tv-loading{padding:20px;color:rgba(255,255,255,.5);font-size:12px}
+.bt-form{padding:0 18px 18px}
+.bt-form .field input,.bt-form .field select,.bt-form .field textarea,.bt-chart-controls input,.bt-chart-controls select{width:100%;min-width:0;box-sizing:border-box}
+.bt-preview{display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding:14px;margin-top:14px;border:1px solid #303030;border-radius:8px;background:#0b0b0b}
+.bt-preview>div{display:flex;flex-direction:column;gap:5px;min-width:105px}
+.bt-preview span{font-size:10px;color:rgba(255,255,255,.48)}
+.bt-preview strong{font-size:16px;color:#fff}
+.bt-preview button{margin-left:auto}
+.bt-empty{display:flex;flex-direction:column;align-items:center;gap:7px;padding:42px 18px;text-align:center;color:rgba(255,255,255,.48);font-size:12px}
+.bt-empty strong{color:#fff;font-size:13px}
+.bt-disclaimer{font-size:11px;line-height:1.65}
+.bt-disclaimer strong{color:#66ff99}
+.bt-history-panel .table-scroll{overflow:auto}
+@media(max-width:1200px){.bt-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.bt-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.bt-chart-controls{grid-template-columns:1fr 120px;padding:0 12px 12px}.bt-tv-host{height:420px}.bt-form{padding:0 12px 14px}.bt-preview{gap:14px}.bt-preview button{width:100%;margin-left:0}.bt-chart-head{flex-direction:column}.bt-chart-head>a{align-self:flex-start}}
+@media(max-width:420px){.bt-chart-controls{grid-template-columns:1fr}.bt-tv-host{height:360px}}
+
+/* Light-mode contrast and surface harmonization */
+html[data-theme="light"] .bt-equity-zero{stroke:rgba(38,52,43,.28)}
+html[data-theme="light"] .bt-equity-axis{stroke:rgba(38,52,43,.16)}
+html[data-theme="light"] .bt-equity-line{stroke:#456c52}
+html[data-theme="light"] .bt-equity-label{fill:#59675e}
+html[data-theme="light"] .bt-chart-head p,html[data-theme="light"] .bt-entry-panel .panel-head p{color:#59675e}
+html[data-theme="light"] .bt-tv-host{background:#fff;border-color:#e2e8e3}
+html[data-theme="light"] .bt-tv-host .tradingview-widget-copyright{color:#59675e}
+html[data-theme="light"] .bt-tv-host .tradingview-widget-copyright a{color:#456c52}
+html[data-theme="light"] .bt-tv-loading{color:#59675e}
+html[data-theme="light"] .bt-preview{background:#f5f8f5;border-color:#e1e8e2}
+html[data-theme="light"] .bt-preview span{color:#59675e}
+html[data-theme="light"] .bt-preview strong,html[data-theme="light"] .bt-empty strong{color:#26342b}
+html[data-theme="light"] .bt-empty{color:#59675e}
+html[data-theme="light"] .bt-disclaimer strong{color:#456c52}

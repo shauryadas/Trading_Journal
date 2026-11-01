@@ -298,10 +298,11 @@ body,.app-shell{font-size:15px!important}
 .account-range-card .account-health-heading strong{font-size:15px!important}
 .account-range-section{padding:0 2px}
 .account-range-track{position:relative;height:6px;width:100%;border-radius:999px;background:#222428;overflow:visible}
-.account-range-loss,.account-range-gain{position:absolute;top:0;display:block;height:100%;max-width:50%;border-radius:999px}
-.account-range-loss{right:50%;background:#ff4d4d;border-top-right-radius:0;border-bottom-right-radius:0}
-.account-range-gain{left:50%;background:#66ff99;border-top-left-radius:0;border-bottom-left-radius:0}
-.account-range-start-marker{position:absolute;z-index:2;left:50%;top:-5px;width:2px;height:16px;transform:translateX(-50%);border-radius:2px;background:#e6e6e6;box-shadow:0 0 0 3px rgba(255,255,255,.06)}
+.account-range-loss,.account-range-gain{position:absolute;top:0;display:block;height:100%;max-width:none;border-radius:999px}
+.account-range-loss{background:#ff4d4d;border-top-right-radius:0;border-bottom-right-radius:0}
+.account-range-gain{background:#66ff99;border-top-left-radius:0;border-bottom-left-radius:0}
+.account-range-start-marker{position:absolute;z-index:2;left:50%;top:-5px;width:2px;height:16px;transform:translateX(-50%);border-radius:2px;background:#9aa3ad;box-shadow:0 0 0 3px rgba(255,255,255,.06)}
+.account-range-current-marker{position:absolute;z-index:3;top:-7px;width:3px;height:20px;transform:translateX(-50%);border-radius:3px;background:#fff;box-shadow:0 0 0 3px rgba(102,255,153,.18)}
 .account-range-scale{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:start;margin-top:12px}
 .account-range-end{display:flex;flex-direction:column;gap:3px;min-width:0}
 .account-range-end strong{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -309,7 +310,11 @@ body,.app-shell{font-size:15px!important}
 .account-range-loss-label strong{color:#ff4d4d}
 .account-range-target-label{align-items:flex-end;text-align:right}
 .account-range-target-label strong{color:#66ff99}
-.account-range-start-label{justify-self:center;padding-top:1px}
+.account-range-start-label{justify-self:center;padding-top:1px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px}
+.account-range-start-label strong{font-size:15px;font-weight:800;letter-spacing:-.02em;color:#fff;font-variant-numeric:tabular-nums;white-space:nowrap}
+.account-range-pnl{font-size:10px;font-weight:700;letter-spacing:0;font-variant-numeric:tabular-nums;white-space:nowrap}
+.account-range-pnl.positive{color:#66ff99}
+.account-range-pnl.negative{color:#ff6b6b}
 .account-range-divider{margin:19px 0 15px;border-top:1px solid #26282c}
 .account-range-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;gap:12px}
 .account-range-metric{display:flex;flex-direction:column;gap:6px;min-width:0}

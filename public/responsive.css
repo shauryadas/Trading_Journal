@@ -1,10 +1,12 @@
 /* Responsive navigation and interaction polish */
 .mobile-bottom-nav{display:none}
-.chart-panel .chart-wrap{padding:2px 20px 14px}
-.chart-panel .chart-legend{font-size:12px}
-.chart-panel .chart-range{font-size:11px}
-.chart-panel .equity-svg{display:block;width:100%;height:auto;aspect-ratio:2.81 / 1;margin-top:10px}
-.chart-panel .chart-xlabels{font-size:11px;padding-top:3px}
+.chart-panel .chart-wrap{padding:4px 20px 14px}
+.chart-panel .chart-legend{display:flex;gap:14px;align-items:center;font-size:12px;flex-wrap:wrap}
+.chart-panel .chart-current-value{margin-left:auto;color:#e5f5eb;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+.chart-panel .chart-range{font-size:11px;white-space:nowrap}
+.chart-panel .equity-svg{display:block;width:100%;height:auto;aspect-ratio:2.73 / 1;margin-top:12px;overflow:visible}
+.chart-panel .equity-svg text{font-variant-numeric:tabular-nums}
+@media(max-width:680px){.chart-panel .chart-wrap{padding:4px 10px 12px}.chart-panel .chart-current-value{font-size:12px}.chart-panel .chart-range{display:none}.chart-panel .equity-svg{aspect-ratio:2.1 / 1}}
 @media(max-width:680px){
   html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
   .app-shell{min-height:100dvh;padding-bottom:calc(68px + env(safe-area-inset-bottom))}
@@ -34,7 +36,7 @@
   .chart-panel .chart-wrap{padding:2px 12px 12px}
   .chart-panel .chart-legend{font-size:11px}
   .chart-panel .chart-range{display:none}
-  .chart-panel .equity-svg{width:100%;height:auto;aspect-ratio:2.81 / 1}
+  .chart-panel .equity-svg{width:100%;height:auto;aspect-ratio:2.1 / 1}
   .chart-panel .chart-xlabels{font-size:10px}
   .panel-head{min-width:0}
   .panel-chip{max-width:45%;overflow:hidden;text-overflow:ellipsis}
@@ -62,4 +64,18 @@
 }
 @media(min-width:681px){
   .mobile-bottom-nav{display:none!important}
+}
+
+/* Account growth chart: final responsive typography and geometry overrides */
+.chart-panel .chart-wrap{padding:4px 20px 14px}
+.chart-panel .chart-legend{display:flex;gap:14px;align-items:center;font-size:12px;flex-wrap:wrap}
+.chart-panel .chart-current-value{margin-left:auto;color:#e5f5eb;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+.chart-panel .chart-range{font-size:11px;white-space:nowrap}
+.chart-panel .equity-svg{display:block;width:100%;height:auto;aspect-ratio:2.73 / 1;margin-top:12px;overflow:visible}
+.chart-panel .equity-svg text{font-variant-numeric:tabular-nums}
+@media(max-width:680px){
+  .chart-panel .chart-wrap{padding:4px 10px 12px}
+  .chart-panel .chart-current-value{font-size:12px}
+  .chart-panel .chart-range{display:none}
+  .chart-panel .equity-svg{aspect-ratio:2.1 / 1}
 }

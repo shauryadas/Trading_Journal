@@ -1,9 +1,10 @@
+import { BacktestingPage } from "./backtesting.js";
 const React = window.React;
 const { useEffect, useMemo, useRef, useState } = React;
 const createRoot = window.ReactDOM.createRoot;
 const htm = window.htm;
 const html = htm.bind(React.createElement);
-const STORAGE_KEY = "edge-journal-v1";
+const STORAGE_KEY = "edge-journal-v2";
 const todayISO = () => {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -60,7 +61,7 @@ const DEMO_DATA = (() => {
     { id: "pb-2", name: "Session Liquidity Sweep", market: "Forex", bias: "Both", entryRules: "Identify prior session high/low. Wait for a sweep and a close back inside the range; enter on lower-timeframe structure shift.", stopRule: "Beyond the sweep extreme with a small volatility buffer.", targets: "Target opposing session liquidity. Minimum planned reward-to-risk 1.8:1.", notes: "Best during London and New York overlap. Avoid major news releases." },
     { id: "pb-3", name: "VWAP Reclaim", market: "Futures", bias: "Long", entryRules: "Price reclaims VWAP after a failed push lower. Require a higher low and acceptance above VWAP.", stopRule: "Below the higher-low pivot. Exit if price loses VWAP on a closing basis.", targets: "Prior swing high, then 2R extension.", notes: "Prefer alignment with higher-timeframe trend." }
   ];
-  return { accounts, trades, playbook };
+  return { accounts, trades, playbook, backtests: [] };
 })();
 
 const ICONS = {
@@ -70,6 +71,7 @@ const ICONS = {
   analytics: "M4 19V5M4 19h17M8 15l3-4 3 2 5-7",
   playbook: "M5 3h12a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2z M5 17a2 2 0 0 1 2-2h12M9 7h6M9 10h5",
   data: "M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3",
+  payouts: "M3 7h18M5 7l1 13h12l1-13M9 7V4h6v3m-3 4v5m-2-2 2 2 2-2",
   plus: "M12 5v14M5 12h14",
   search: "M20 20l-4.5-4.5M18 10.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0z",
   chevron: "m9 18 6-6-6-6",
@@ -92,11 +94,32 @@ function Icon({ name, size = 18 }) {
 }
 
 function Modal({ title, subtitle, onClose, children, wide = false }) {
+  const panelRef = useRef(null);
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const previous = document.activeElement;
+    const focusable = () => Array.from(panel.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter((node) => !node.hidden && node.getClientRects().length);
+    (focusable()[0] || panel).focus();
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) { event.preventDefault(); panel.focus(); return; }
+      if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items[items.length - 1].focus(); }
+      else if (!event.shiftKey && document.activeElement === items[items.length - 1]) { event.preventDefault(); items[0].focus(); }
+    };
+    panel.addEventListener("keydown", onKeyDown);
+    return () => {
+      panel.removeEventListener("keydown", onKeyDown);
+      if (previous && typeof previous.focus === "function") previous.focus();
+    };
+  }, []);
   return html`<div className="modal-scrim" onMouseDown=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <section className=${"modal " + (wide ? "modal-wide" : "")}>
+    <section ref=${panelRef} className=${"modal " + (wide ? "modal-wide" : "")} role="dialog" aria-modal="true" aria-label=${title} tabIndex="-1">
       <header className="modal-head">
         <div><h2>${title}</h2>${subtitle ? html`<p>${subtitle}</p>` : null}</div>
-        <button className="icon-button" onClick=${onClose} aria-label="Close"><${Icon} name="close" /></button>
+        <button type="button" className="icon-button" onClick=${onClose} aria-label="Close"><${Icon} name="close" /></button>
       </header>
       ${children}
     </section>
@@ -123,8 +146,25 @@ function SectionHeading({ eyebrow, title, description, action }) {
 }
 
 function ImageLightbox({ file, onClose }) {
+  const panelRef = useRef(null);
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const previous = document.activeElement;
+    const closeButton = panel.querySelector("button");
+    (closeButton || panel).focus();
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
+      if (event.key === "Tab") { event.preventDefault(); (panel.querySelector("button") || panel).focus(); }
+    };
+    panel.addEventListener("keydown", onKeyDown);
+    return () => {
+      panel.removeEventListener("keydown", onKeyDown);
+      if (previous && typeof previous.focus === "function") previous.focus();
+    };
+  }, []);
   return html`<div className="media-lightbox" onMouseDown=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <section className="media-lightbox-panel" role="dialog" aria-modal="true" aria-label="Trade image preview">
+    <section ref=${panelRef} tabIndex="-1" className="media-lightbox-panel" role="dialog" aria-modal="true" aria-label="Trade image preview">
       <div className="media-lightbox-head"><strong>${file.name || "Trade image"}</strong><button type="button" className="icon-button" onClick=${onClose} aria-label="Close image preview"><${Icon} name="close" size=${18} /></button></div>
       <img src=${file.url} alt=${file.name || "Trade image preview"} />
       <div className="media-lightbox-foot">Click outside the image or press the close button to return to the trade log.</div>
@@ -134,7 +174,7 @@ function ImageLightbox({ file, onClose }) {
 
 function TradeTable({ trades, accounts, onEdit, onDelete, compact = false }) {
   const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a]));
-  const rows = compact ? trades.slice(0, 5) : trades;
+  const rows = trades;
   const [previewImage, setPreviewImage] = useState(null);
   return html`<div className="table-scroll"><table className="data-table">
     <thead><tr><th>Trade</th><th>Account</th><th>Date</th><th>Side</th><th>Position Size</th><th>Net P&L</th><th>R</th><th>Media</th><th></th></tr></thead>
@@ -151,7 +191,7 @@ function TradeTable({ trades, accounts, onEdit, onDelete, compact = false }) {
         <td className=${"mono-cell pnl-cell " + pnlClass(t.pnl)}>${signedMoney(t.pnl)}</td>
         <td className=${"mono-cell " + pnlClass(t.rMultiple)}>${n(t.rMultiple).toFixed(2)}R</td>
         <td className="muted-cell">${firstImage ? html`<button type="button" className="trade-media-trigger" onClick=${() => setPreviewImage(firstImage)} title="Preview attached image"><img src=${firstImage.url} alt=${firstImage.name || "Trade attachment"} /><span>${attachments.length > 1 ? "+" + (attachments.length - 1) : "View"}</span></button>` : attachments.length ? attachments.length + " file(s)" : "—"}</td>
-        <td><div className="row-actions"><button className="tiny-icon" onClick=${() => onEdit(t)} title="Edit"><${Icon} name="edit" size=${14} /></button><button className="tiny-icon danger" onClick=${() => onDelete(t.id)} title="Delete"><${Icon} name="trash" size=${14} /></button></div></td>
+        <td><div className="row-actions"><button type="button" className="tiny-icon" onClick=${() => onEdit(t)} title="Edit" aria-label="Edit trade"><${Icon} name="edit" size=${14} /></button><button type="button" className="tiny-icon danger" onClick=${() => onDelete(t.id)} title="Delete" aria-label="Delete trade"><${Icon} name="trash" size=${14} /></button></div></td>
       </tr>`;
       }) : html`<tr><td colSpan="9"><div className="empty-state small-empty"><strong>No trades found</strong><span>Add a closed trade or adjust your filters.</span></div></td></tr>`}
     </tbody>
@@ -162,28 +202,32 @@ function TradeTable({ trades, accounts, onEdit, onDelete, compact = false }) {
 
 function EquityChart({ series, currency = "USD" }) {
   const [hovered, setHovered] = useState(null);
-  const W = 760, H = 270, L = 18, R = 18, T = 18, B = 38;
-  const vals = series.map((p) => p.value);
-  const minV = Math.min(...vals), maxV = Math.max(...vals);
-  const spread = maxV - minV || Math.max(1, Math.abs(maxV) * 0.01);
-  const lo = minV - spread * 0.12, hi = maxV + spread * 0.12;
-  const x = (i) => L + (series.length <= 1 ? 0 : (i / (series.length - 1)) * (W - L - R));
-  const y = (v) => T + ((hi - v) / (hi - lo)) * (H - T - B);
-  const points = series.map((p, i) => ({ x: x(i), y: y(p.value), ...p }));
-  const line = points.map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + " " + p.y.toFixed(1)).join(" ");
-  const area = line + " L " + points[points.length - 1].x + " " + (H - B) + " L " + points[0].x + " " + (H - B) + " Z";
-  const ticks = [0, 1, 2, 3].map((i) => hi - ((hi - lo) / 3) * i);
+  const W = 820, H = 300, L = 112, R = 24, T = 22, B = 48;
+  const values = series.map((point) => n(point.value));
+  const minValue = Math.min(...values), maxValue = Math.max(...values);
+  const rawSpread = maxValue - minValue;
+  const spread = rawSpread || Math.max(1, Math.abs(maxValue) * 0.002);
+  // Wider vertical domain keeps normal daily fluctuations visually restrained.
+  const low = minValue - spread * 0.75, high = maxValue + spread * 0.75;
+  const plotWidth = W - L - R, plotHeight = H - T - B;
+  const x = (index) => L + (series.length <= 1 ? plotWidth / 2 : index / (series.length - 1) * plotWidth);
+  const y = (value) => T + (high - value) / (high - low) * plotHeight;
+  const points = series.map((point, index) => ({ ...point, x: x(index), y: y(n(point.value)) }));
+  const path = points.map((point, index) => (index ? "L" : "M") + point.x.toFixed(1) + " " + point.y.toFixed(1)).join(" ");
+  const ticks = Array.from({ length: 5 }, (_, index) => high - (high - low) * index / 4);
+  const dateLabel = (point) => point?.start ? "Start" : shortDate(point?.date);
+  const labelPoints = [points[0], points[Math.floor((points.length - 1) / 2)], points[points.length - 1]];
+  const active = hovered && points[hovered.index];
   return html`<div className="chart-wrap">
-    <div className="chart-legend"><span><i></i> Portfolio equity</span><span className="chart-range">${shortDate(series[0]?.date)} — ${shortDate(series[series.length - 1]?.date)}</span></div>
-    <svg className="equity-svg" viewBox=${"0 0 " + W + " " + H} role="img" aria-label="Combined equity curve">
-      <defs><linearGradient id="equity-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#66ff99" stopOpacity=".22" /><stop offset="100%" stopColor="#35d39a" stopOpacity="0" /></linearGradient></defs>
-      ${ticks.map((v) => html`<g><line x1=${L} x2=${W - R} y1=${y(v)} y2=${y(v)} stroke="#253243" strokeDasharray="3 5" /><text x=${L} y=${y(v) - 6} fill="#6f8092" fontSize="12">${Math.round(v).toLocaleString("en-US")}</text></g>`)}
-      ${null}
-      <path d=${line} fill="none" stroke="#66ff99" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      ${points.map((p, i) => html`<g onMouseEnter=${() => setHovered({ ...p, index: i })} onMouseLeave=${() => setHovered(null)}><circle cx=${p.x} cy=${p.y} r="12" fill="transparent" style=${{ cursor: "crosshair" }} /><circle cx=${p.x} cy=${p.y} r="0" fill="#66ff99" /></g>`)}
-      ${hovered ? html`<g pointerEvents="none"><line x1=${hovered.x} x2=${hovered.x} y1=${T} y2=${H - B} stroke="#9aa8b8" strokeDasharray="3 4" opacity=".7" /><circle cx=${hovered.x} cy=${hovered.y} r="0" fill="#66ff99" /><g transform=${`translate(${Math.max(8, Math.min(W - 198, hovered.x + 10))} ${Math.max(4, hovered.y - 54)})`}><rect width="190" height="50" rx="7" fill="#101a25" stroke="#4b6478" /><text x="11" y="19" fill="#b9c7d5" fontSize="12">${fullDate(hovered.date)}</text><text x="11" y="39" fill="#66ff99" fontSize="15" fontWeight="700">${money(hovered.value, currency)}</text></g></g>` : null}
+    <div className="chart-legend"><span><i></i> Portfolio equity</span><strong className="chart-current-value">${money(series[series.length - 1]?.value || 0, currency)}</strong><span className="chart-range">${series.some((point) => !point.start) ? shortDate(series.find((point) => !point.start)?.date) + " — " + shortDate(series[series.length - 1]?.date) : "No closed trades yet"}</span></div>
+    <svg className="equity-svg" viewBox=${"0 0 " + W + " " + H} role="img" aria-label="Portfolio equity by trading day">
+      ${ticks.map((value) => html`<g><line x1=${L} x2=${W - R} y1=${y(value)} y2=${y(value)} stroke="#263442" strokeWidth="1" /><text x=${L - 12} y=${y(value) + 4} textAnchor="end" fill="#9aa8b8" fontSize="12" fontFamily="inherit">${money(value, currency)}</text></g>`)}
+      <path d=${path} fill="none" stroke="#66ff99" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      ${points.length > 1 ? html`<circle cx=${points[points.length - 1].x} cy=${points[points.length - 1].y} r="4" fill="#66ff99" stroke="#0c151e" strokeWidth="2" />` : null}
+      ${points.map((point, index) => html`<g onMouseEnter=${() => setHovered({ ...point, index })} onMouseLeave=${() => setHovered(null)}><circle cx=${point.x} cy=${point.y} r="13" fill="transparent" style=${{ cursor: "crosshair" }} /></g>`)}
+      ${labelPoints.map((point, index) => html`<text x=${point.x} y=${H - 13} textAnchor=${index === 0 ? "start" : index === 2 ? "end" : "middle"} fill="#8b9aaa" fontSize="12" fontFamily="inherit">${dateLabel(point)}</text>`)}
+      ${active ? html`<g pointerEvents="none"><line x1=${active.x} x2=${active.x} y1=${T} y2=${H - B} stroke="#9aa8b8" strokeDasharray="3 4" opacity=".7" /><circle cx=${active.x} cy=${active.y} r="4" fill="#66ff99" stroke="#0c151e" strokeWidth="2" /><g transform=${`translate(${Math.max(L, Math.min(W - 206, active.x + 12))} ${Math.max(T, active.y - 58)})`}><rect width="194" height="50" rx="7" fill="#101a25" stroke="#4b6478" /><text x="11" y="19" fill="#b9c7d5" fontSize="11">${active.start ? "Starting balance" : fullDate(active.date)}</text><text x="11" y="39" fill="#66ff99" fontSize="15" fontWeight="700">${money(active.value, currency)}</text></g></g>` : null}
     </svg>
-    <div className="chart-xlabels"><span>${shortDate(series[0]?.date)}</span><span>${shortDate(series[Math.floor((series.length - 1) / 2)]?.date)}</span><span>${shortDate(series[series.length - 1]?.date)}</span></div>
   </div>`;
 }
 
@@ -234,43 +278,34 @@ function AccountHealthStrip({ accountBreakdown }) {
     <div className="account-health-list">
       ${accountBreakdown.map(({ account, stats }) => {
         const mll = n(account.maxDrawdown);
-        const drawdown = n(stats.maxDD);
-        const mllUse = mll > 0 ? Math.min(100, drawdown / mll * 100) : 0;
-        const mllRemaining = mll > 0 ? Math.max(0, mll - drawdown) : 0;
+        const drawdown = n(stats.pnl);
+        const actualMaxDD = n(stats.maxDD);
         const starting = n(account.startingBalance);
-        const balance = starting + n(stats.pnl);
         const target = n(account.profitTarget);
-        const targetProgress = target > 0 ? Math.max(0, Math.min(100, n(stats.pnl) / target * 100)) : 0;
-        const targetRemaining = target > 0 ? Math.max(0, target - n(stats.pnl)) : 0;
-        const funded = (account.accountStage || "Eval") === "Funded";
-        const safetyNet = n(account.safetyNetBalance);
-        const buffer = balance - safetyNet;
-        const lossWidth = mll > 0 ? Math.min(50, mllUse / 2) : 0;
-        const profitWidth = target > 0 ? Math.min(50, targetProgress / 2) : 0;
+        const currentBalance = starting + drawdown;
+        const rangeTotal = mll + target;
+        const startPosition = rangeTotal > 0 ? mll / rangeTotal * 100 : 50;
+        const currentPosition = rangeTotal > 0 ? Math.max(0, Math.min(100, (mll + drawdown) / rangeTotal * 100)) : 50;
+        const lossWidth = Math.max(0, startPosition - currentPosition);
+        const profitWidth = Math.max(0, currentPosition - startPosition);
         const stage = account.accountStage || "Eval";
-        const status = account.accountStatus || "Active";
+        const status = (n(account.maxDrawdown) > 0 && stats.maxDD >= n(account.maxDrawdown)) || (account.accountStatus || "").toLowerCase() === "failed" ? "Failed" : (account.accountStatus || "Active");
         return html`<article className="account-health-card account-range-card" key=${account.id}>
           <div className="account-health-heading"><div><strong>${account.name}</strong><span>${account.firm} · ${account.accountType || (account.firm === "FTMO" ? "Forex" : "Futures")}</span></div><div className="account-tag-row"><span className="account-stage-tag">${stage}</span><span className=${"account-status-tag " + status.toLowerCase()}>${status}</span></div></div>
           <div className="account-range-section">
-            <div className="account-range-track" role="img" aria-label=${"Drawdown " + money(drawdown) + " of MLL " + (mll > 0 ? money(mll) : "not set") + "; realized profit " + money(Math.max(0, stats.pnl)) + " of target " + (target > 0 ? money(target) : "not set")}>
-              <i className="account-range-loss" style=${{ width: lossWidth + "%" }}></i>
-              <i className="account-range-gain" style=${{ width: profitWidth + "%" }}></i>
-              <b className="account-range-start-marker"></b>
+            <div className="account-range-track" role="img" aria-label=${"Current balance " + money(currentBalance) + "; realized P&L " + signedMoney(drawdown) + "; max drawdown " + money(actualMaxDD) + " of MLL " + (mll > 0 ? money(mll) : "not set") + "; profit target " + (target > 0 ? money(target) : "not set")}>
+              <i className="account-range-loss" style=${{ left: currentPosition + "%", width: lossWidth + "%" }}></i>
+              <i className="account-range-gain" style=${{ left: startPosition + "%", width: profitWidth + "%" }}></i>
+              <b className="account-range-start-marker" style=${{ left: startPosition + "%" }}></b>
+              <b className="account-range-current-marker" style=${{ left: currentPosition + "%" }}></b>
             </div>
             <div className="account-range-scale">
-              <div className="account-range-end account-range-loss-label"><strong>${mll > 0 ? money(mll) : "—"}</strong><span>MLL</span></div>
-              <div className="account-range-start-label">START</div>
-              <div className="account-range-end account-range-target-label"><strong>${target > 0 ? money(target) : "—"}</strong><span>TARGET</span></div>
+              <div className="account-range-end account-range-loss-label"><strong>${mll > 0 ? money(mll) : "—"}</strong><span>MAX LOSS LIMIT</span></div>
+              <div className="account-range-start-label"><strong>${money(currentBalance)}</strong><span>CURRENT BALANCE</span><small className=${"account-range-pnl " + (drawdown >= 0 ? "positive" : "negative")}>${signedMoney(drawdown)} P&L · START ${money(starting)}</small></div>
+              <div className="account-range-end account-range-target-label"><strong>${target > 0 ? money(target) : "—"}</strong><span>PROFIT TARGET</span></div>
             </div>
           </div>
-          <div className="account-range-divider"></div>
-          <div className="account-range-metrics">
-            <div className="account-range-metric"><strong>${money(drawdown)}</strong><span>DRAWDOWN</span></div>
-            <div className="account-range-metric account-range-balance"><strong>${money(balance)}</strong><span>BALANCE</span></div>
-            <div className="account-range-metric account-range-remaining"><strong>${target > 0 ? money(targetRemaining) : (mll > 0 ? money(mllRemaining) : "—")}</strong><span>REMAINING</span></div>
-          </div>
-          <div className="account-range-footnote"><span>${mll > 0 ? mllUse.toFixed(0) + "% of max loss limit used" : "Set an MLL limit to track downside"}</span><span>${target > 0 ? targetProgress.toFixed(0) + "% of profit target" : "Set a profit target to track upside"}</span></div>
-          ${funded ? html`<div className="account-range-metrics funded-safety-metrics"><div className="account-range-metric"><strong>${safetyNet > 0 ? money(safetyNet) : "—"}</strong><span>SAFETY NET / MINIMUM</span></div><div className="account-range-metric"><strong>${money(n(account.positiveDrawdownLimitValue))}</strong><span>POSITIVE DD + $VALUE</span></div><div className="account-range-metric account-range-remaining"><strong>${safetyNet > 0 ? money(buffer) : "—"}</strong><span>BUFFER ABOVE SAFETY NET</span></div></div>` : null}
+          ${null}
         </article>`;
       })}
       ${accountBreakdown.length ? null : html`<div className="empty-state small-empty"><strong>No accounts selected</strong><span>Select an account to view its limits and balance.</span></div>`}
@@ -286,16 +321,22 @@ function accountMetrics(account, trades) {
   const grossWin = winners.reduce((s, t) => s + n(t.pnl), 0);
   const grossLoss = Math.abs(losers.reduce((s, t) => s + n(t.pnl), 0));
   const days = {};
-  trades.forEach((t) => { days[t.date] = (days[t.date] || 0) + n(t.pnl); });
+  trades.forEach((t) => { const day = String(t.date || ""); if (day) days[day] = (days[day] || 0) + n(t.pnl); });
   const activeDays = Object.values(days);
   const positiveDays = activeDays.filter((v) => v > 0).length;
   const bestDay = Math.max(0, ...activeDays);
-  const positiveTotal = activeDays.reduce((s, v) => s + Math.max(0, v), 0);
-  const riskValues = trades.map((t) => n(t.rMultiple)).filter((v) => Number.isFinite(v));
+  const riskValues = trades
+    .filter((trade) => Number(trade.riskAmount) > 0 && Number.isFinite(Number(trade.rMultiple)))
+    .map((trade) => Number(trade.rMultiple));
   let equity = n(account?.startingBalance), peak = equity, maxDD = 0;
-  Object.keys(days).sort().forEach((day) => {
-    equity += days[day]; peak = Math.max(peak, equity); maxDD = Math.max(maxDD, peak - equity);
-  });
+  trades
+    .map((trade, index) => ({ trade, index }))
+    .sort((a, b) => String(a.trade.date || "").localeCompare(String(b.trade.date || "")) || a.index - b.index)
+    .forEach(({ trade }) => {
+      equity += n(trade.pnl);
+      peak = Math.max(peak, equity);
+      maxDD = Math.max(maxDD, peak - equity);
+    });
   const todayPnl = trades.filter((t) => t.date === todayISO()).reduce((s, t) => s + n(t.pnl), 0);
   return {
     pnl, count: trades.length, winRate: trades.length ? winners.length / trades.length * 100 : 0,
@@ -303,28 +344,87 @@ function accountMetrics(account, trades) {
     avgR: riskValues.length ? riskValues.reduce((s, v) => s + v, 0) / riskValues.length : 0,
     avgWin: winners.length ? grossWin / winners.length : 0,
     avgLoss: losers.length ? grossLoss / losers.length : 0,
-    consistency: activeDays.length ? positiveDays / activeDays.length * 100 : 0,
-    positiveDays, activeDays: activeDays.length, bestDayShare: positiveTotal ? bestDay / positiveTotal * 100 : 0,
+    consistency: n(account?.profitTarget) > 0 ? bestDay / n(account.profitTarget) * 100 : 0,
+    positiveDays, activeDays: activeDays.length, bestDayShare: n(account?.profitTarget) > 0 ? bestDay / n(account.profitTarget) * 100 : 0,
     bestDay, maxDD, maxDDPct: n(account?.startingBalance) ? maxDD / n(account.startingBalance) * 100 : 0,
     todayPnl
   };
 }
 
-function buildEquitySeries(accounts, trades) {
-  const start = accounts.reduce((s, a) => s + n(a.startingBalance), 0);
+function isAccountFailed(account, trades) {
+  if (!account) return false;
+  if ((account.accountStatus || "").toLowerCase() === "failed") return true;
+  const limit = n(account.maxDrawdown);
+  if (limit <= 0) return false;
+  return accountMetrics(account, trades.filter((trade) => trade.accountId === account.id)).maxDD >= limit;
+}
+
+function payoutEligibility(account, trades, payouts, requestAmount = 0) {
+  if (!account) return { eligible: false, checks: [], available: 0, metrics: {} };
+  const accountTrades = trades.filter((trade) => trade.accountId === account.id);
+  const stats = accountMetrics(account, accountTrades);
+  const startingBalance = n(account.startingBalance);
+  const grossBalance = startingBalance + stats.pnl;
+  const safetyNet = n(account.safetyNetBalance);
+  const minimumDays = n(account.minimumTradingDays);
+  const consistencyCap = n(account.consistencyCap);
+  const minimumProfitableDays = n(account.minimumProfitableDays);
+  const minimumProfitPerDay = n(account.minimumProfitPerDay);
+  const minimumPayoutAmount = n(account.minimumPayoutAmount);
+  const minimumProfitAboveSafetyNet = n(account.minimumProfitAboveSafetyNet ?? 500);
+  const failed = isAccountFailed(account, trades);
+  const stageOk = String(account.accountStage || "").toLowerCase() === "funded";
+  const activeOk = !failed && String(account.accountStatus || "Active").toLowerCase() === "active";
+  const minDaysOk = minimumDays <= 0 || stats.activeDays >= minimumDays;
+  const consistencyTarget = n(account.profitTarget);
+  const consistencyPct = consistencyTarget > 0 ? stats.bestDay / consistencyTarget * 100 : 0;
+  const consistencyOk = consistencyCap > 0 && consistencyTarget > 0 && consistencyPct <= consistencyCap;
   const byDay = {};
-  trades.forEach((t) => { byDay[t.date] = (byDay[t.date] || 0) + n(t.pnl); });
-  const dates = Object.keys(byDay).sort();
-  if (!dates.length) return [{ date: todayISO(), value: start }];
+  accountTrades.forEach((trade) => { const day = String(trade.date || ""); if (day) byDay[day] = (byDay[day] || 0) + n(trade.pnl); });
+  const profitableDays = Object.values(byDay).filter((value) => value > 0).length;
+  const qualifyingProfitDays = Object.values(byDay).filter((value) => minimumProfitPerDay > 0 && value >= minimumProfitPerDay).length;
+  const minProfitDaysOk = minimumProfitableDays > 0 && minimumProfitPerDay > 0 && qualifyingProfitDays >= minimumProfitableDays;
+  const committed = payouts.filter((payout) => payout.account_id === account.id && ["Requested", "Paid"].includes(payout.status)).reduce((sum, payout) => sum + n(payout.amount), 0);
+  const balanceAfterPayouts = grossBalance - committed;
+  const safetyNetOk = safetyNet > 0 && balanceAfterPayouts >= safetyNet;
+  const profitAboveSafety = safetyNet > 0 ? Math.max(0, Math.min(stats.pnl - committed, balanceAfterPayouts - safetyNet)) : 0;
+  const available = Math.max(0, profitAboveSafety);
+  const minPayoutOk = minimumPayoutAmount > 0 && n(requestAmount) >= minimumPayoutAmount;
+  const profitAboveSafetyOk = minimumProfitAboveSafetyNet > 0 && available >= minimumProfitAboveSafetyNet;
+  const checks = [
+    { key: "funded", label: "Funded account", passed: stageOk, detail: stageOk ? "Account is in funded stage" : "Payouts are only available on funded accounts" },
+    { key: "status", label: "Account active / MLL clear", passed: activeOk, detail: failed ? "Account has failed its MLL" : activeOk ? "No MLL breach recorded" : "Account is not marked Active" },
+    { key: "profit", label: "Profit above Safety Net Threshold", passed: profitAboveSafetyOk, detail: "Available above safety net: " + money(available) + " / required " + money(minimumProfitAboveSafetyNet) },
+    { key: "profitPositive", label: "Positive available profit", passed: available > 0, detail: available > 0 ? "Available to request: " + money(available) : "No uncommitted realized profit available" },
+    { key: "days", label: "Minimum trading days", passed: minDaysOk, detail: minimumDays > 0 ? stats.activeDays + " / " + minimumDays + " distinct days" : "No minimum trading-day requirement configured" },
+    { key: "consistency", label: "Consistency rule", passed: consistencyOk, detail: consistencyCap > 0 && consistencyTarget > 0 ? money(stats.bestDay) + " best day / " + money(consistencyTarget) + " profit target = " + consistencyPct.toFixed(1) + "% (max " + consistencyCap + "%)" : "Set a profit target and consistency cap" },
+    { key: "safety", label: "Safety-net threshold", passed: safetyNetOk, detail: safetyNet > 0 ? "Protected balance floor: " + money(safetyNet) + " · balance after payouts: " + money(balanceAfterPayouts) : "Set a Safety Net Threshold" },
+    { key: "profitDays", label: "Minimum profitable days", passed: minProfitDaysOk, detail: minimumProfitableDays > 0 && minimumProfitPerDay > 0 ? qualifyingProfitDays + " / " + minimumProfitableDays + " days with at least " + money(minimumProfitPerDay) + " profit (" + profitableDays + " green days total)" : "Set both minimum profitable days and minimum profit per day" },
+    { key: "minPayout", label: "Minimum payout amount", passed: minPayoutOk, detail: minimumPayoutAmount > 0 ? "Request must be at least " + money(minimumPayoutAmount) : "Set a minimum payout amount" }
+  ];
+  return { eligible: checks.every((check) => check.passed), checks, available, metrics: { pnl: stats.pnl, balance: grossBalance, balanceAfterPayouts, maxDrawdown: stats.maxDD, activeDays: stats.activeDays, bestDayShare: stats.bestDayShare, safetyNet, committed, profitableDays, qualifyingProfitDays } };
+}
+
+function buildEquitySeries(accounts, trades) {
+  const start = accounts.reduce((sum, account) => sum + n(account.startingBalance), 0);
+  const byDay = {};
+  trades.forEach((trade) => { byDay[trade.date] = (byDay[trade.date] || 0) + n(trade.pnl); });
+  const dates = Object.keys(byDay).filter(Boolean).sort();
+  if (!dates.length) return [{ date: null, value: start, start: true }];
   let running = start;
-  const series = [{ date: dates[0], value: start }];
-  dates.forEach((d) => { running += byDay[d]; series.push({ date: d, value: running }); });
+  const series = [{ date: null, value: start, start: true }];
+  dates.forEach((date) => {
+    running += byDay[date];
+    series.push({ date, value: running });
+  });
   return series;
 }
 
-function TradeModal({ trade, accounts, initialAccountId, onClose, onSave }) {
+function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave }) {
+  const firstEligibleAccount = accounts.find((account) => !isAccountFailed(account, trades));
+  const preferredAccountId = initialAccountId || firstEligibleAccount?.id || accounts[0]?.id || "";
   const [form, setForm] = useState(() => ({
-    accountId: trade?.accountId || initialAccountId || accounts[0]?.id || "",
+    accountId: trade?.accountId || preferredAccountId,
     symbol: trade?.symbol || "", market: trade?.market || "Futures", side: trade?.side || "Long",
     date: trade?.date || todayISO(), pnl: trade?.pnl ?? "", riskAmount: trade?.riskAmount ?? "",
     setup: trade?.setup || "", notes: trade?.notes || "",
@@ -341,6 +441,8 @@ function TradeModal({ trade, accounts, initialAccountId, onClose, onSave }) {
   const newlyUploaded = useRef([]);
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const preview = n(form.pnl), risk = n(form.riskAmount), r = risk ? preview / risk : 0;
+  const selectedAccount = accounts.find((account) => account.id === form.accountId);
+  const blockNewEntry = !trade && isAccountFailed(selectedAccount, trades);
   const prepareTradeImage = async (file) => {
     if (!file || !/^image\/(jpeg|png|webp|gif)$/i.test(file.type || "")) throw new Error("Choose a JPG, PNG, WEBP or GIF image.");
     if (file.size > 20 * 1024 * 1024) throw new Error("Choose an image smaller than 20 MB. Large screenshots are compressed automatically.");
@@ -410,6 +512,7 @@ function TradeModal({ trade, accounts, initialAccountId, onClose, onSave }) {
   const close = async () => { await cleanupNewUploads(); onClose(); };
   const submit = async (e) => {
     e.preventDefault();
+    if (blockNewEntry) { setMediaError("This account has failed its Maximum Loss Limit (MLL). New trade entries are locked."); return; }
     if (!form.accountId || !form.symbol.trim() || form.pnl === "") return;
     setUploading(true); setMediaError("");
     let uploaded = [];
@@ -439,8 +542,12 @@ function TradeModal({ trade, accounts, initialAccountId, onClose, onSave }) {
   };
   return html`<${Modal} title=${trade ? "Edit trade" : "Log a trade"} subtitle="Record the result, your risk and the chart evidence for this trade." onClose=${close} wide=${true}>
     <form className="modal-form" onSubmit=${submit}>
+      ${blockNewEntry ? html`<div role="alert" style=${{ marginBottom: "14px", padding: "12px 14px", borderRadius: "8px", border: "1px solid rgba(255,77,77,.4)", background: "rgba(255,77,77,.1)", color: "var(--red, #ff4d4d)" }}><strong>ACCOUNT FAILED — MLL HIT</strong><div style=${{ marginTop: "4px", fontSize: "12px" }}>This account has reached its Maximum Loss Limit. Trade entry is locked. Select an eligible account to continue.</div></div>` : null}
+      <div className="form-grid one">
+        <${Field} label="Account"><select required value=${form.accountId} onChange=${(e) => set("accountId", e.target.value)}>${accounts.map((a) => html`<option value=${a.id} disabled=${isAccountFailed(a, trades)}>${a.name}${isAccountFailed(a, trades) ? " — FAILED" : ""}</option>`)}</select></${Field}>
+      </div>
+      <fieldset disabled=${blockNewEntry} style=${{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div className="form-grid three">
-        <${Field} label="Account"><select required value=${form.accountId} onChange=${(e) => set("accountId", e.target.value)}>${accounts.map((a) => html`<option value=${a.id}>${a.name}</option>`)}</select></${Field}>
         <${Field} label="Instrument"><input required value=${form.symbol} onChange=${(e) => set("symbol", e.target.value.toUpperCase())} placeholder="e.g. NQ, EURUSD" /></${Field}>
         <${Field} label="Market"><select value=${form.market} onChange=${(e) => set("market", e.target.value)}><option>Futures</option><option>Forex</option><option>Stocks</option><option>Crypto</option><option>Options</option></select></${Field}>
         <${Field} label="Trade date"><input type="date" required value=${form.date} onChange=${(e) => set("date", e.target.value)} /></${Field}>
@@ -479,14 +586,15 @@ function TradeModal({ trade, accounts, initialAccountId, onClose, onSave }) {
         ${mediaError ? html`<small className="media-error">${mediaError}</small>` : null}
         ${uploading ? html`<small className="media-uploading">Uploading media and saving trade…</small>` : null}
       </div>
-      <div className="modal-actions"><button type="button" className="btn btn-ghost" onClick=${close} disabled=${uploading}>Cancel</button><button type="submit" className="btn btn-primary" disabled=${uploading}>${uploading ? "Saving…" : trade ? "Save changes" : "Add trade"}</button></div>
+      </fieldset>
+      <div className="modal-actions"><button type="button" className="btn btn-ghost" onClick=${close} disabled=${uploading}>Cancel</button><button type="submit" className="btn btn-primary" disabled=${uploading || blockNewEntry}>${blockNewEntry ? "Entry locked" : uploading ? "Saving…" : trade ? "Save changes" : "Add trade"}</button></div>
     </form>
     ${previewImage ? html`<${ImageLightbox} file=${previewImage} onClose=${() => setPreviewImage(null)} />` : null}
   </${Modal}>`;
 }
 
-function AccountsModal({ accounts, onClose, onAdd, onUpdate, onDelete }) {
-  const emptyForm = () => ({ firm: "Apex", customFirm: "", accountType: "Futures", accountStage: "Eval", accountStatus: "Active", name: "", startingBalance: 50000, dailyLoss: 1000, maxDrawdown: 2500, profitTarget: 3000, consistencyCap: 30, safetyNetBalance: 0, positiveDrawdownLimitValue: 0 });
+function AccountsModal({ accounts, trades, onClose, onAdd, onUpdate, onDelete }) {
+  const emptyForm = () => ({ firm: "Apex", customFirm: "", accountType: "Futures", accountStage: "Eval", accountStatus: "Active", name: "", startingBalance: 50000, dailyLoss: 1000, maxDrawdown: 2500, profitTarget: 3000, consistencyCap: 30, minimumTradingDays: 0, safetyNetBalance: 0, minimumProfitableDays: 0, minimumProfitPerDay: 0, minimumPayoutAmount: 0, minimumProfitAboveSafetyNet: 500 });
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -510,16 +618,17 @@ function AccountsModal({ accounts, onClose, onAdd, onUpdate, onDelete }) {
     const firmName = form.firm === "__custom__" ? form.customFirm.trim() : form.firm;
     if (!form.name.trim() || !firmName) return;
     const { customFirm, ...account } = form;
-    const saved = { ...account, firm: firmName, id: editingId || uid(), startingBalance: n(form.startingBalance), dailyLoss: n(form.dailyLoss), maxDrawdown: n(form.maxDrawdown), profitTarget: n(form.profitTarget), consistencyCap: n(form.consistencyCap), safetyNetBalance: n(form.safetyNetBalance), positiveDrawdownLimitValue: n(form.positiveDrawdownLimitValue) };
+    const saved = { ...account, firm: firmName, id: editingId || uid(), startingBalance: n(form.startingBalance), dailyLoss: n(form.dailyLoss), maxDrawdown: n(form.maxDrawdown), profitTarget: n(form.profitTarget), consistencyCap: n(form.consistencyCap), minimumTradingDays: n(form.minimumTradingDays), safetyNetBalance: n(form.safetyNetBalance), minimumProfitableDays: n(form.minimumProfitableDays), minimumProfitPerDay: n(form.minimumProfitPerDay), minimumPayoutAmount: n(form.minimumPayoutAmount), minimumProfitAboveSafetyNet: n(form.minimumProfitAboveSafetyNet) };
+    delete saved.positiveDrawdownLimitValue;
     if (editingId) onUpdate(saved); else onAdd(saved);
     cancelEdit();
   };
   const accountTypeOf = (a) => a.accountType || (a.firm === "FTMO" ? "Forex" : "Futures");
   const stageOf = (a) => a.accountStage || "Eval";
-  const statusOf = (a) => a.accountStatus || "Active";
+  const statusOf = (a) => isAccountFailed(a, trades) ? "Failed" : (a.accountStatus || "Active");
   return html`<${Modal} title="Manage accounts" subtitle="Set each prop account's stage, status, market type and performance limits." onClose=${onClose} wide=${true}>
     <div className="account-manage-list">
-      ${accounts.map((a) => html`<div className="account-manage-row"><div className="firm-mark">${a.firm.slice(0, 1)}</div><div className="account-manage-name"><strong>${a.name}</strong><span>${a.firm} · ${accountTypeOf(a)} · ${stageOf(a)} · ${money(a.startingBalance)} start</span><div className="account-tag-row"><span className="account-stage-tag">${stageOf(a)}</span><span className=${"account-status-tag " + statusOf(a).toLowerCase()}>${statusOf(a)}</span></div></div><div className="account-limits">Daily ${money(a.dailyLoss)} <i>·</i> MLL ${money(a.maxDrawdown)} <i>·</i> Target ${money(a.profitTarget)} ${stageOf(a) === "Funded" ? html`<i>·</i> Safety net ${money(a.safetyNetBalance)} <i>·</i> Positive DD + ${money(a.positiveDrawdownLimitValue)}` : null}</div><div className="account-row-actions"><button className="tiny-icon" onClick=${() => startEdit(a)} title="Edit account"><${Icon} name="edit" size=${14} /></button><button className="tiny-icon danger" onClick=${() => onDelete(a.id)} title="Delete account"><${Icon} name="trash" size=${14} /></button></div></div>`)}
+      ${accounts.map((a) => html`<div className="account-manage-row"><div className="firm-mark">${a.firm.slice(0, 1)}</div><div className="account-manage-name"><strong>${a.name}</strong><span>${a.firm} · ${accountTypeOf(a)} · ${stageOf(a)} · ${money(a.startingBalance)} start</span><div className="account-tag-row"><span className="account-stage-tag">${stageOf(a)}</span><span className=${"account-status-tag " + statusOf(a).toLowerCase()}>${statusOf(a)}</span></div></div><div className="account-limits">Daily ${money(a.dailyLoss)} <i>·</i> MLL ${money(a.maxDrawdown)} <i>·</i> Profit target ${money(a.profitTarget)} <i>·</i> Min days ${n(a.minimumTradingDays) > 0 ? n(a.minimumTradingDays) : "—"}</div><div className="account-row-actions"><button type="button" className="tiny-icon" onClick=${() => startEdit(a)} title="Edit account" aria-label="Edit account"><${Icon} name="edit" size=${14} /></button><button type="button" className="tiny-icon danger" onClick=${() => onDelete(a.id)} title="Delete account" aria-label="Delete account"><${Icon} name="trash" size=${14} /></button></div></div>`)}
       ${accounts.length ? null : html`<div className="empty-state small-empty"><strong>No accounts yet</strong><span>Add your first prop firm account below.</span></div>`}
     </div>
     <div className="form-divider"><span>${editingId ? "Edit account" : "Add account"}</span></div>
@@ -530,15 +639,17 @@ function AccountsModal({ accounts, onClose, onAdd, onUpdate, onDelete }) {
         </select></${Field}>
         <${Field} label="Account type"><select value=${form.accountType} onChange=${(e) => set("accountType", e.target.value)}><option value="Forex">Forex</option><option value="Futures">Futures</option><option value="Crypto">Crypto</option></select></${Field}>
         <${Field} label="Account stage"><select value=${form.accountStage} onChange=${(e) => set("accountStage", e.target.value)}><option>Step 1</option><option>Step 2</option><option>Instant</option><option>Eval</option><option>Funded</option><option>Challenge</option></select></${Field}>
-        ${form.accountStage === "Funded" ? html`<${Field} label="Safety Net & Minimum Balance ($)"><input type="number" min="0" step="0.01" value=${form.safetyNetBalance} onChange=${(e) => set("safetyNetBalance", e.target.value)} placeholder="Enter minimum balance to maintain" /></${Field}><${Field} label="Positive Drawdown Limit + $Value ($)"><input type="number" min="0" step="0.01" value=${form.positiveDrawdownLimitValue} onChange=${(e) => set("positiveDrawdownLimitValue", e.target.value)} placeholder="Enter dollar value" /></${Field}>` : null}
+        ${form.accountStage === "Funded" ? html`<${Field} label="Safety Net Threshold ($)"><input type="number" min="0" step="0.01" value=${form.safetyNetBalance} onChange=${(e) => set("safetyNetBalance", e.target.value)} placeholder="Enter safety net threshold" /></${Field}>` : null}
         <${Field} label="Account status"><select value=${form.accountStatus} onChange=${(e) => set("accountStatus", e.target.value)}><option>Active</option><option>Failed</option><option>Pass</option></select></${Field}>
         ${form.firm === "__custom__" ? html`<${Field} label="Custom prop firm name"><input required autoFocus value=${form.customFirm} onChange=${(e) => set("customFirm", e.target.value)} placeholder="Enter prop firm name" /></${Field}>` : null}
         <${Field} label="Account name"><input required value=${form.name} onChange=${(e) => set("name", e.target.value)} placeholder="e.g. Apex 50K PA" /></${Field}>
         <${Field} label="Starting balance ($)"><input type="number" min="0" value=${form.startingBalance} onChange=${(e) => set("startingBalance", e.target.value)} /></${Field}>
         <${Field} label="Maximum daily loss ($)"><input type="number" min="0" value=${form.dailyLoss} onChange=${(e) => set("dailyLoss", e.target.value)} /></${Field}>
         <${Field} label="Maximum drawdown / MLL ($)"><input type="number" min="0" value=${form.maxDrawdown} onChange=${(e) => set("maxDrawdown", e.target.value)} /></${Field}>
-        <${Field} label="Profit target ($)"><input type="number" min="0" value=${form.profitTarget} onChange=${(e) => set("profitTarget", e.target.value)} /></${Field}>
-        <${Field} label="Consistency cap (%)"><input type="number" min="1" max="100" value=${form.consistencyCap} onChange=${(e) => set("consistencyCap", e.target.value)} /></${Field}>
+        <${Field} label="Profit target ($)"><input type="number" min="0" step="0.01" value=${form.profitTarget} onChange=${(e) => set("profitTarget", e.target.value)} /><small>Consistency is calculated as your best profitable day divided by this target.</small></${Field}>
+        <${Field} label="Consistency rule (%)"><input type="number" min="1" max="100" value=${form.consistencyCap} onChange=${(e) => set("consistencyCap", e.target.value)} /></${Field}>
+        <${Field} label="Minimum trading days"><select value=${form.minimumTradingDays ?? 0} onChange=${(e) => set("minimumTradingDays", e.target.value)}><option value="0">Not set</option>${Array.from({ length: 30 }, (_, i) => i + 1).map((days) => html`<option value=${days}>${days} ${days === 1 ? "day" : "days"}</option>`)}</select><small>Optional. Leave as Not set when the prop firm\'s rules do not require a minimum.</small></${Field}>
+        ${form.accountStage === "Funded" ? html`<${Field} label="Minimum profitable days"><input type="number" min="1" max="30" step="1" value=${form.minimumProfitableDays ?? 0} onChange=${(e) => set("minimumProfitableDays", e.target.value)} placeholder="e.g. 5" /><small>Required for payout eligibility; pair this with a minimum profit per day.</small></${Field}><${Field} label="Minimum profit per day ($)"><input type="number" min="0.01" step="0.01" value=${form.minimumProfitPerDay ?? 0} onChange=${(e) => set("minimumProfitPerDay", e.target.value)} placeholder="e.g. 100" /><small>Required with minimum profitable days to qualify.</small></${Field}><${Field} label="Minimum payout amount ($)"><input type="number" min="0.01" step="0.01" value=${form.minimumPayoutAmount ?? 0} onChange=${(e) => set("minimumPayoutAmount", e.target.value)} placeholder="e.g. 500" /><small>Required minimum request size for this funded account.</small></${Field}>` : null}
       </div>
       <div className="modal-actions">${editingId ? html`<button className="btn btn-ghost" type="button" onClick=${cancelEdit}>Cancel edit</button>` : null}<button className="btn btn-primary" type="submit"><${Icon} name=${editingId ? "edit" : "plus"} size=${15} /> ${editingId ? "Save account" : "Add account"}</button></div>
     </form>
@@ -571,16 +682,16 @@ function PlaybookModal({ item, onClose, onSave }) {
 }
 
 function Overview({ accounts, trades, metrics, series, accountBreakdown, showAccountPerformance, onNewTrade, onEdit, onDelete, onManage }) {
-  const recent = [...trades].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+  const recent = [...trades].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
   return html`<div className="page-stack">
-    <${SectionHeading} eyebrow="PORTFOLIO SNAPSHOT" title="Overview" description="Your trading performance, consolidated across selected accounts." action=${html`<button className="btn btn-primary" onClick=${onNewTrade}><${Icon} name="plus" size=${15} /> Log trade</button>`} />
+    <${SectionHeading} eyebrow="PORTFOLIO SNAPSHOT" title="Overview" description="Your trading performance, consolidated across selected accounts." action=${html`<button type="button" className="btn btn-primary" onClick=${onNewTrade}><${Icon} name="plus" size=${15} /> Log trade</button>`} />
     <div className=${"metrics-grid overview-metrics-grid " + (showAccountPerformance ? "account-workspace-metrics" : "")}>
       <${MetricCard} label="Net realized P&L" value=${signedMoney(metrics.pnl)} detail=${trades.length + " closed trades"} tone=${metrics.pnl >= 0 ? "green" : "red"} icon="trend" />
       <${MetricCard} label="Win rate" value=${metrics.winRate.toFixed(1) + "%"} detail=${metrics.wins + " wins · " + metrics.losses + " losses"} tone="blue" icon="analytics" />
       <${MetricCard} label="Profit factor" value=${metrics.profitFactor === Infinity ? "∞" : metrics.profitFactor.toFixed(2)} detail="Gross profit ÷ gross loss" tone="normal" icon="shield" />
       <${MetricCard} label="Avg. R-multiple" value=${metrics.avgR.toFixed(2) + "R"} detail="Average reward relative to risk" tone=${metrics.avgR >= 0 ? "green" : "red"} icon="trend" />
-      ${!showAccountPerformance ? html`<${MetricCard} label="Consistency score" value=${metrics.consistency.toFixed(0) + "%"} detail=${metrics.positiveDays + " positive / " + metrics.activeDays + " active days"} tone=${metrics.consistency >= 50 ? "green" : "normal"} icon="analytics" />` : null}
-      <${MetricCard} label="Max drawdown" value=${money(metrics.maxDD)} detail=${(accounts.reduce((sum, account) => sum + n(account.startingBalance), 0) ? (metrics.maxDD / accounts.reduce((sum, account) => sum + n(account.startingBalance), 0) * 100).toFixed(2) + "% of starting balance" : "Peak-to-trough realized equity")} tone="red" icon="shield" />
+      ${!showAccountPerformance ? html`<${MetricCard} label="Consistency rule" value=${metrics.consistency.toFixed(1) + "%"} detail="Largest winning day ÷ total profit target" tone="normal" icon="analytics" />` : null}
+      <${MetricCard} label="Max drawdown" value=${money(metrics.maxDD)} detail=${(accounts.reduce((sum, account) => sum + n(account.startingBalance), 0) ? (metrics.maxDD / accounts.reduce((sum, account) => sum + n(account.startingBalance), 0) * 100).toFixed(2) + "% of starting balance · trade-by-trade" : "Peak-to-trough realized equity")} tone="red" icon="shield" />
     </div>
     <div className=${"content-grid overview-grid " + (showAccountPerformance ? "" : "single-account-overview")}>
       <section className="panel chart-panel">
@@ -588,7 +699,7 @@ function Overview({ accounts, trades, metrics, series, accountBreakdown, showAcc
         <${EquityChart} series=${series} />
       </section>
       ${showAccountPerformance ? html`<section className="panel performance-panel">
-        <div className="panel-head"><div><div className="eyebrow">BY ACCOUNT</div><h3>Account performance</h3></div><button className="text-button" onClick=${onManage}>Manage <${Icon} name="chevron" size=${13} /></button></div>
+        <div className="panel-head"><div><div className="eyebrow">BY ACCOUNT</div><h3>Account performance</h3></div><button type="button" className="text-button" onClick=${onManage}>Manage <${Icon} name="chevron" size=${13} /></button></div>
         <div className="account-performance-list">
           ${accountBreakdown.map(({ account, stats }) => html`<div className="account-performance-row">
             <div className="firm-mark">${account.firm.slice(0, 1)}</div>
@@ -601,7 +712,7 @@ function Overview({ accounts, trades, metrics, series, accountBreakdown, showAcc
       ${!showAccountPerformance ? html`<div className="overview-account-health"><${AccountHealthStrip} accountBreakdown=${accountBreakdown} /></div>` : null}
     </div>
     <section className="panel">
-      <div className="panel-head"><div><div className="eyebrow">LATEST ACTIVITY</div><h3>Recent trades</h3></div><span className="panel-chip">${trades.length} total records</span></div>
+      <div className="panel-head"><div><div className="eyebrow">LATEST ACTIVITY</div><h3>Recent trades</h3></div><span className="panel-chip">${recent.length} of ${trades.length} trades</span></div>
       <${TradeTable} trades=${recent} accounts=${accounts} onEdit=${onEdit} onDelete=${onDelete} compact=${true} />
     </section>
   </div>`;
@@ -618,7 +729,7 @@ function TradeLogs({ trades, accounts, accountBreakdown, onNew, onEdit, onDelete
   });
   const sorted = [...visible].sort((a, b) => b.date.localeCompare(a.date));
   return html`<div className="page-stack">
-    <${SectionHeading} eyebrow="EXECUTION HISTORY" title="Trade logs" description="Review every closed position and keep your execution data clean." action=${html`<button className="btn btn-primary" onClick=${onNew}><${Icon} name="plus" size=${15} /> Add trade</button>`} />
+    <${SectionHeading} eyebrow="EXECUTION HISTORY" title="Trade logs" description="Review every closed position and keep your execution data clean." action=${html`<button type="button" className="btn btn-primary" onClick=${onNew}><${Icon} name="plus" size=${15} /> Add trade</button>`} />
     <section className="panel">
       <div className="filter-bar">
         <div className="search-box"><${Icon} name="search" size=${16} /><input placeholder="Search symbol, setup or notes…" value=${search} onChange=${(e) => setSearch(e.target.value)} /></div>
@@ -666,7 +777,7 @@ function CalendarPage({ trades, accounts }) {
     </div>
     <div className="content-grid calendar-grid">
       <section className="panel calendar-panel">
-        <div className="calendar-toolbar"><div><div className="eyebrow">MONTHLY HEATMAP</div><h3>${month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</h3></div><div className="calendar-nav"><button className="icon-button" onClick=${() => changeMonth(-1)}><${Icon} name="left" size=${16} /></button><button className="icon-button" onClick=${() => changeMonth(1)}><${Icon} name="right" size=${16} /></button></div></div>
+        <div className="calendar-toolbar"><div><div className="eyebrow">MONTHLY HEATMAP</div><h3>${month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</h3></div><div className="calendar-nav"><button type="button" className="icon-button" onClick=${() => changeMonth(-1)}><${Icon} name="left" size=${16} /></button><button type="button" className="icon-button" onClick=${() => changeMonth(1)}><${Icon} name="right" size=${16} /></button></div></div>
         <div className="calendar-grid-days">${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d) => html`<div className="weekday">${d}</div>`)}
           ${days.map((d) => {
             const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -674,7 +785,7 @@ function CalendarPage({ trades, accounts }) {
             const value = byDay[iso] || 0;
             const has = Object.prototype.hasOwnProperty.call(byDay, iso);
             const alpha = has ? Math.min(.34, .09 + Math.abs(value) / dailyMax * .25) : 0;
-            return html`<button className=${"calendar-day " + (!inMonth ? "outside " : "") + (selectedDay === iso ? "selected " : "") + (has ? (value >= 0 ? "day-profit" : "day-loss") : "")} style=${has ? { background: value >= 0 ? "rgba(102,255,153," + alpha + ")" : "rgba(255,77,77," + alpha + ")" } : {}} onClick=${() => setSelectedDay(iso)}>
+            return html`<button type="button" className=${"calendar-day " + (!inMonth ? "outside " : "") + (selectedDay === iso ? "selected " : "") + (has ? (value >= 0 ? "day-profit" : "day-loss") : "")} style=${has ? { background: value >= 0 ? "rgba(102,255,153," + alpha + ")" : "rgba(255,77,77," + alpha + ")" } : {}} onClick=${() => setSelectedDay(iso)}>
               <span className="day-number">${d.getDate()}</span>${has ? html`<strong className=${pnlClass(value)}>${value > 0 ? "+" : ""}${Math.round(value).toLocaleString("en-US")}</strong><i>${Math.abs(value) > 1000 ? "●●●" : Math.abs(value) > 300 ? "●●" : "●"}</i>` : html`<span className="no-trade">—</span>`}
             </button>`;
           })}
@@ -710,7 +821,7 @@ function AnalyticsPage({ accounts, trades, metrics, accountBreakdown }) {
     <div className="metrics-grid">
       <${MetricCard} label="Average win" value=${money(metrics.avgWin)} detail="Mean P&L on winning trades" tone="green" icon="trend" />
       <${MetricCard} label="Average loss" value=${money(metrics.avgLoss)} detail="Mean absolute loss" tone="red" icon="shield" />
-      <${MetricCard} label="Positive-day consistency" value=${metrics.consistency.toFixed(1) + "%"} detail=${metrics.positiveDays + " green / " + metrics.activeDays + " active days"} tone="blue" icon="calendar" />
+      <${MetricCard} label="Consistency rule" value=${metrics.consistency.toFixed(1) + "%"} detail="Largest winning day ÷ total profit target" tone="blue" icon="calendar" />
       <${MetricCard} label="Expectancy" value=${signedMoney(metrics.count ? metrics.pnl / metrics.count : 0)} detail="Average P&L per trade" tone=${metrics.pnl >= 0 ? "green" : "red"} icon="analytics" />
     </div>
     <div className="content-grid analytics-grid">
@@ -724,20 +835,20 @@ function AnalyticsPage({ accounts, trades, metrics, accountBreakdown }) {
       <section className="panel risk-panel">
         <div className="panel-head"><div><div className="eyebrow">RISK GOVERNANCE</div><h3>Prop firm guardrails</h3></div><span className="status-tag">Monitoring</span></div>
         <div className="risk-meter-block"><div className="risk-meter-label"><span>Daily loss usage</span><strong>${todayUsage.toFixed(1)}%</strong></div><div className="risk-meter"><i className=${todayUsage >= 100 ? "meter-red" : todayUsage >= 70 ? "meter-amber" : "meter-green"} style=${{ width: Math.min(100, todayUsage) + "%" }} /></div><small>${money(Math.max(0, -todayPnl))} used of ${money(dailyLossLimit)} combined daily limits</small></div>
-        <div className="risk-meter-block"><div className="risk-meter-label"><span>Best-day concentration</span><strong>${metrics.bestDayShare.toFixed(1)}%</strong></div><div className="risk-meter"><i className=${metrics.bestDayShare > cap ? "meter-amber" : "meter-green"} style=${{ width: Math.min(100, metrics.bestDayShare) + "%" }} /></div><small>Lowest configured consistency cap: ${cap}%</small></div>
+        <div className="risk-meter-block"><div className="risk-meter-label"><span>Best-day concentration</span><strong>${metrics.bestDayShare.toFixed(1)}%</strong></div><div className="risk-meter"><i className=${metrics.bestDayShare > cap ? "meter-amber" : "meter-green"} style=${{ width: Math.min(100, metrics.bestDayShare) + "%" }} /></div><small>Largest winning day ÷ total profit target × 100 · rule ${cap}%</small></div>
         <div className="risk-stats-row"><div><span>Best trading day</span><strong className="positive">${signedMoney(best)}</strong></div><div><span>Worst trading day</span><strong className="negative">${signedMoney(worst)}</strong></div></div>
       </section>
     </div>
     <section className="panel">
       <div className="panel-head"><div><div className="eyebrow">ACCOUNT HEALTH</div><h3>Drawdown & consistency monitor</h3></div><span className="panel-chip">Per-account limits</span></div>
       <div className="health-table-wrap"><table className="data-table health-table"><thead><tr><th>Account</th><th>Net P&L</th><th>Max observed DD</th><th>DD limit</th><th>Consistency</th><th>Daily P&L</th><th>Status</th></tr></thead><tbody>
-        ${accountBreakdown.map(({ account, stats }) => {
+        ${accountBreakdown.map(({ account, stats, failed }) => {
           const ddUse = account.maxDrawdown ? stats.maxDD / account.maxDrawdown * 100 : 0;
           const dailyUse = account.dailyLoss ? Math.max(0, -stats.todayPnl) / account.dailyLoss * 100 : 0;
           const concentration = stats.bestDayShare;
-          const breached = ddUse >= 100 || dailyUse >= 100;
+          const breached = failed || ddUse >= 100 || dailyUse >= 100;
           const watch = ddUse >= 70 || dailyUse >= 70 || concentration > n(account.consistencyCap);
-          return html`<tr><td><strong>${account.name}</strong><small>${account.firm}</small></td><td className=${"mono-cell " + pnlClass(stats.pnl)}>${signedMoney(stats.pnl)}</td><td className="mono-cell">${money(stats.maxDD)}</td><td><div className="limit-cell"><span>${ddUse.toFixed(0)}%</span><div className="limit-track"><i style=${{ width: Math.min(100, ddUse) + "%" }} className=${ddUse >= 100 ? "meter-red" : ddUse >= 70 ? "meter-amber" : "meter-green"} /></div></div></td><td className="mono-cell">${concentration.toFixed(0)}% / ${account.consistencyCap}%</td><td className=${"mono-cell " + pnlClass(stats.todayPnl)}>${signedMoney(stats.todayPnl)}</td><td><span className=${"health-status " + (breached ? "breach" : watch ? "watch" : "healthy")}>${breached ? "Limit hit" : watch ? "Watch" : "On track"}</span></td></tr>`;
+          return html`<tr><td><strong>${account.name}</strong><small>${account.firm}</small></td><td className=${"mono-cell " + pnlClass(stats.pnl)}>${signedMoney(stats.pnl)}</td><td className="mono-cell">${money(stats.maxDD)}</td><td><div className="limit-cell"><span>${ddUse.toFixed(0)}%</span><div className="limit-track"><i style=${{ width: Math.min(100, ddUse) + "%" }} className=${ddUse >= 100 ? "meter-red" : ddUse >= 70 ? "meter-amber" : "meter-green"} /></div></div></td><td className="mono-cell">${concentration.toFixed(1)}% / ${account.consistencyCap}%</td><td className=${"mono-cell " + pnlClass(stats.todayPnl)}>${signedMoney(stats.todayPnl)}</td><td><span className=${"health-status " + (breached ? "breach" : watch ? "watch" : "healthy")}>${failed ? "Failed" : breached ? "Limit hit" : watch ? "Watch" : "On track"}</span></td></tr>`;
         })}
       </tbody></table></div>
       <div className="helper-note"><${Icon} name="shield" size=${15} /><span>Risk checks use recorded, realized trades only. Intraday unrealized drawdown and each firm's live rule engine are not connected.</span></div>
@@ -750,13 +861,13 @@ function PlaybookPage({ items, onNew, onEdit, onDelete }) {
     <${SectionHeading} eyebrow="PROCESS LIBRARY" title="Playbook" description="Turn your best setups into repeatable entry, stop and target rules." action=${html`<button className="btn btn-primary" onClick=${onNew}><${Icon} name="plus" size=${15} /> New setup</button>`} />
     <div className="playbook-grid">
       ${items.map((item, i) => html`<article className="panel playbook-card">
-        <div className="playbook-card-top"><span className="playbook-index">0${i + 1}</span><div className="playbook-actions"><button className="tiny-icon" onClick=${() => onEdit(item)} title="Edit"><${Icon} name="edit" size=${14} /></button><button className="tiny-icon danger" onClick=${() => onDelete(item.id)} title="Delete"><${Icon} name="trash" size=${14} /></button></div></div>
+        <div className="playbook-card-top"><span className="playbook-index">0${i + 1}</span><div className="playbook-actions"><button type="button" className="tiny-icon" onClick=${() => onEdit(item)} title="Edit" aria-label="Edit playbook setup"><${Icon} name="edit" size=${14} /></button><button type="button" className="tiny-icon danger" onClick=${() => onDelete(item.id)} title="Delete" aria-label="Delete playbook setup"><${Icon} name="trash" size=${14} /></button></div></div>
         <h3>${item.name}</h3><div className="playbook-tags"><span>${item.market}</span><span>${item.bias}</span></div>
         <div className="playbook-rule"><label>ENTRY CONDITIONS</label><p>${item.entryRules || "No entry rules added yet."}</p></div>
         <div className="rule-pair"><div className="playbook-rule"><label>STOP-LOSS</label><p>${item.stopRule || "Not defined."}</p></div><div className="playbook-rule"><label>TARGETS</label><p>${item.targets || "Not defined."}</p></div></div>
         ${item.notes ? html`<div className="playbook-notes">${item.notes}</div>` : null}
       </article>`)}
-      <button className="add-playbook-card" onClick=${onNew}><span><${Icon} name="plus" size=${22} /></span><strong>Add a new setup</strong><small>Define a repeatable edge</small></button>
+      <button type="button" className="add-playbook-card" onClick=${onNew}><span><${Icon} name="plus" size=${22} /></span><strong>Add a new setup</strong><small>Define a repeatable edge</small></button>
     </div>
     ${items.length ? null : html`<section className="panel empty-state"><div className="empty-icon"><${Icon} name="playbook" size=${21} /></div><strong>Your playbook is empty</strong><span>Add a setup with entry, stop-loss and target rules.</span><button className="btn btn-primary" onClick=${onNew}>Create first setup</button></section>`}
   </div>`;
@@ -782,9 +893,89 @@ function DataCenter({ data, syncStatus, onExportCsv, onExportJson, onImport, onC
     </section>
     <section className="panel danger-zone">
       <div><h3>Reset journal</h3><p>Clear trade history or restore the sample workspace. Export a backup first if you need to keep your current records.</p></div>
-      <div className="data-actions"><button className="btn btn-danger" onClick=${onClear}>Clear all trades</button><button className="btn btn-ghost" onClick=${onReset}>Restore demo data</button></div>
+      <div className="data-actions"><button type="button" className="btn btn-danger" onClick=${onClear}>Clear all trades</button><button type="button" className="btn btn-ghost" onClick=${onReset}>Restore demo data</button></div>
     </section>
     <div className="helper-note"><${Icon} name="shield" size=${15} /><span>CSV exports contain trade rows only. JSON backups include account settings and playbook content. Data is not connected to a broker or prop firm's account feed.</span></div>
+  </div>`;
+}
+
+function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, loading }) {
+  const firstFunded = accounts.find((account) => String(account.accountStage || "").toLowerCase() === "funded") || accounts[0];
+  const [accountId, setAccountId] = useState(firstFunded?.id || "");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const selectedAccount = accounts.find((account) => account.id === accountId);
+  const eligibility = payoutEligibility(selectedAccount, trades, payouts, n(amount));
+  const pendingTotal = payouts.filter((payout) => payout.status === "Requested").reduce((sum, payout) => sum + n(payout.amount), 0);
+  const receivedTotal = payouts.filter((payout) => payout.status === "Paid").reduce((sum, payout) => sum + n(payout.amount), 0);
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    if (!eligibility.eligible) { setError("Complete every required payout condition before requesting."); return; }
+    if (!(n(amount) > 0) || n(amount) > eligibility.available + 0.00001) { setError("Enter an amount within the available payout balance."); return; }
+    setBusy(true);
+    try {
+      await onRequest({ accountId, amount: n(amount), note });
+      setAmount("");
+      setNote("");
+    } catch (err) {
+      setError(err?.message || "Unable to submit payout request.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return html`<div className="payout-page">
+    <${SectionHeading} eyebrow="FUNDED ACCOUNT CASH FLOW" title="Payouts" description="Check your funded-account rules, submit a payout request, and keep a permanent record of every request." />
+    <div className="payout-summary-grid">
+      <article className="payout-summary-card"><span>PAID OUT</span><strong>${money(receivedTotal)}</strong><small>${payouts.filter((payout) => payout.status === "Paid").length} completed payouts</small></article>
+      <article className="payout-summary-card"><span>REQUESTED</span><strong>${money(pendingTotal)}</strong><small>${payouts.filter((payout) => payout.status === "Requested").length} awaiting processing</small></article>
+      <article className="payout-summary-card"><span>REQUEST HISTORY</span><strong>${payouts.length}</strong><small>All accounts · all statuses</small></article>
+    </div>
+    <div className="payout-work-grid">
+      <section className="panel payout-request-panel">
+        <div className="panel-head"><div><div className="eyebrow">ELIGIBILITY CHECK</div><h3>Request a payout</h3></div><span className="panel-chip">Live journal checks</span></div>
+        <div className="payout-form-body">
+          <${Field} label="Funded account">
+            <select value=${accountId} onChange=${(event) => { setAccountId(event.target.value); setError(""); setAmount(""); }}>
+              ${accounts.map((account) => html`<option value=${account.id}>${account.name} · ${account.firm} · ${account.accountStage || "Eval"}</option>`)}
+            </select>
+          </${Field}>
+          ${selectedAccount ? html`<div className="payout-account-meta"><span>${selectedAccount.firm || "Prop firm"}</span><strong>${selectedAccount.accountStage || "Eval"}</strong><span>${selectedAccount.accountStatus || "Active"}</span></div>` : html`<div className="payout-empty-inline">Add an account to begin.</div>`}
+          <div className="payout-eligibility-head"><div><strong>Eligibility requirements</strong><span>Calculated from saved trade records and account settings</span></div><span className=${"payout-eligibility-state " + (eligibility.eligible ? "is-ready" : "is-blocked")}>${eligibility.eligible ? "Eligible" : "Not eligible"}</span></div>
+          <div className="payout-check-list">
+            ${eligibility.checks.map((check) => html`<div className="payout-check-row" key=${check.key}><span className=${"payout-check-icon " + (check.passed ? "pass" : "fail")}>${check.passed ? "✓" : "!"}</span><div><strong>${check.label}</strong><small>${check.detail}</small></div><span className="payout-check-status">${check.configured === false ? "Not set" : check.passed ? "Passed" : "Failed"}</span></div>`)}
+          </div>
+          <div className="payout-available"><span>Account balance after requested / paid payouts</span><strong>${money(eligibility.metrics.balanceAfterPayouts)}</strong></div><div className="payout-available"><span>Available payout balance</span><strong>${money(eligibility.available)}</strong></div>
+          <form className="payout-submit-form" onSubmit=${submit}>
+            <${Field} label="Request amount (USD)" hint="Cannot exceed available realized profit after pending and paid payouts."><input type="number" min="0.01" max=${eligibility.available} step="0.01" value=${amount} onChange=${(event) => setAmount(event.target.value)} placeholder="0.00" disabled=${!eligibility.checks.filter((check) => check.key !== "minPayout").every((check) => check.passed) || busy} /></${Field}>
+            <${Field} label="Note (optional)"><input value=${note} onChange=${(event) => setNote(event.target.value)} maxLength="500" placeholder="Payout cycle, invoice or reference" disabled=${!eligibility.checks.filter((check) => check.key !== "minPayout").every((check) => check.passed) || busy} /></${Field}>
+            ${error ? html`<div className="payout-error" role="alert">${error}</div>` : null}
+            <button type="submit" className="btn btn-primary payout-submit" disabled=${!eligibility.eligible || busy || !(n(amount) > 0) || n(amount) > eligibility.available}>${busy ? "Submitting request…" : eligibility.eligible ? "Request payout" : "Resolve conditions first"}</button>
+          </form>
+          <p className="payout-disclaimer">This records a request in your journal; it does not submit to or receive money from the prop firm. Rules vary by firm. Only the conditions configured in this account are checked; confirm any additional firm-specific rules before requesting.</p>
+        </div>
+      </section>
+      <section className="panel payout-rules-panel">
+        <div className="panel-head"><div><div className="eyebrow">ACCOUNT RULES</div><h3>What is being checked</h3></div><span className="panel-chip">Per account</span></div>
+        <div className="payout-rules-list">
+          <div><strong>Funded stage</strong><p>Only accounts set to Funded can request a payout.</p></div>
+          <div><strong>Account health / MLL</strong><p>Account must be Active and must not have reached its maximum drawdown limit.</p></div>
+          <div><strong>Minimum trading days</strong><p>Uses the account's Minimum trading days setting and counts distinct dates with trades.</p></div>
+          <div><strong>Consistency rule</strong><p>Uses the account's consistency percentage and compares the best positive day against the profit target.</p></div>
+          <div><strong>Minimum profit above Safety Net Threshold</strong><p>At least $500 (or the account's configured amount) must be available above the safety net before payout eligibility.</p></div>
+          <div><strong>Protected safety-net threshold</strong><p>This amount is never included in a payout. Every request is capped so the account balance after pending and paid payouts cannot fall below this protected threshold.</p></div>
+          <div><strong>Available profit</strong><p>Paid and pending requests are deducted to prevent requesting the same profit twice.</p></div>
+        </div>
+      </section>
+    </div>
+    <section className="panel payout-history-panel">
+      <div className="panel-head"><div><div className="eyebrow">DATABASE RECORDS</div><h3>Payout history</h3></div><span className="panel-chip">${payouts.length} records</span></div>
+      ${loading ? html`<div className="payout-history-empty">Loading payout history…</div>` : payouts.length ? html`<div className="payout-history-table-wrap"><table className="payout-history-table"><thead><tr><th>Account</th><th>Requested</th><th>Amount</th><th>Status</th><th>Reference / note</th><th>Action</th></tr></thead><tbody>
+        ${payouts.map((payout) => html`<tr key=${payout.id}><td><strong>${payout.account_name}</strong><small>${payout.firm || "—"}</small></td><td>${new Date(payout.created_at).toLocaleDateString()}</td><td className="payout-amount-cell">${money(payout.amount, payout.currency || "USD")}</td><td><span className=${"payout-history-status " + String(payout.status).toLowerCase()}>${payout.status}</span></td><td>${payout.note || "—"}</td><td>${payout.status === "Requested" ? html`<div className="payout-row-actions"><button type="button" className="btn btn-secondary" onClick=${() => onUpdateStatus(payout.id, "Paid")}>Mark paid</button><button type="button" className="btn btn-ghost" onClick=${() => onUpdateStatus(payout.id, "Cancelled")}>Cancel</button></div>` : "—"}</td></tr>`)}
+      </tbody></table></div>` : html`<div className="payout-history-empty"><strong>No payout requests yet</strong><span>Once you meet the account conditions, submit your first payout request here.</span></div>`}
+    </section>
   </div>`;
 }
 
@@ -793,7 +984,10 @@ function App() {
   const [page, setPage] = useState("overview");
   const [accountFilter, setAccountFilter] = useState("all");
   const [modal, setModal] = useState(null);
+  const [payouts, setPayouts] = useState([]);
+  const [payoutLoading, setPayoutLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState("Loading saved journal…");
+  const [storageKey, setStorageKey] = useState(null);
   const [ready, setReady] = useState(false);
   const [notice, setNotice] = useState("");
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem("tj-theme") === "light" ? "light" : "dark"; } catch { return "dark"; } });
@@ -815,7 +1009,24 @@ function App() {
   useEffect(() => {
     let alive = true;
     (async () => {
+      try {
+        const response = await fetch("/api/payouts", { method: "GET", credentials: "same-origin" });
+        if (response.status === 401) { location.replace("/login?next=" + encodeURIComponent(location.pathname + location.search)); return; }
+        if (response.ok) {
+          const result = await response.json();
+          if (alive) setPayouts(Array.isArray(result.payouts) ? result.payouts : []);
+        }
+      } catch (error) {}
+      if (alive) setPayoutLoading(false);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
       let loaded = null;
+      let userStorageKey = null;
       try {
         const response = await fetch("/api/journal", { method: "GET", credentials: "same-origin" });
         if (response.status === 401) {
@@ -824,28 +1035,40 @@ function App() {
         }
         if (response.ok) {
           const result = await response.json();
-          loaded = result.payload;
+          const ownerId = String(result.ownerId || "").trim();
+          if (ownerId) {
+            userStorageKey = STORAGE_KEY + ":" + encodeURIComponent(ownerId);
+            loaded = result.payload || null;
+            if (!loaded) {
+              try {
+                const local = localStorage.getItem(userStorageKey);
+                if (local) loaded = JSON.parse(local);
+              } catch (e) {}
+            }
+          }
         }
       } catch (e) {}
-      if (!loaded) {
-        try {
-          const local = localStorage.getItem(STORAGE_KEY);
-          if (local) loaded = JSON.parse(local);
-        } catch (e) {}
+      if (!alive) return;
+      if (!userStorageKey) {
+        setData(clone(DEMO_DATA));
+        setReady(true);
+        setSyncStatus("Account not verified · local cache not loaded");
+        return;
       }
       if (!loaded || !Array.isArray(loaded.accounts) || !Array.isArray(loaded.trades) || !Array.isArray(loaded.playbook)) loaded = clone(DEMO_DATA);
-      if (alive) {
-        setData(loaded);
-        setReady(true);
-        setSyncStatus("Journal loaded");
-      }
+      if (!Array.isArray(loaded.backtests)) loaded.backtests = [];
+      loaded = { ...loaded, accounts: loaded.accounts.map((account) => isAccountFailed(account, loaded.trades) ? { ...account, accountStatus: "Failed" } : account) };
+      setStorageKey(userStorageKey);
+      setData(loaded);
+      setReady(true);
+      setSyncStatus("Journal loaded");
     })();
     return () => { alive = false; };
   }, []);
 
   useEffect(() => {
-    if (!ready) return;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
+    if (!ready || !storageKey) return;
+    try { localStorage.setItem(storageKey, JSON.stringify(data)); } catch (e) {}
     setSyncStatus("Saving changes…");
     const timer = window.setTimeout(async () => {
       try {
@@ -865,7 +1088,7 @@ function App() {
       }
     }, 650);
     return () => window.clearTimeout(timer);
-  }, [data, ready]);
+  }, [data, ready, storageKey]);
 
   const visibleAccounts = useMemo(() => accountFilter === "all" ? data.accounts : data.accounts.filter((a) => a.id === accountFilter), [data.accounts, accountFilter]);
   const visibleTrades = useMemo(() => data.trades.filter((t) => visibleAccounts.some((a) => a.id === t.accountId)), [data.trades, visibleAccounts]);
@@ -875,25 +1098,55 @@ function App() {
     const grossWin = wins.reduce((s, t) => s + n(t.pnl), 0);
     const grossLoss = Math.abs(losses.reduce((s, t) => s + n(t.pnl), 0));
     const days = {};
-    visibleTrades.forEach((t) => { days[t.date] = (days[t.date] || 0) + n(t.pnl); });
-    const dayValues = Object.values(days), rValues = visibleTrades.map((t) => n(t.rMultiple));
-    const positiveTotal = dayValues.reduce((s, v) => s + Math.max(0, v), 0);
+    visibleTrades.forEach((t) => { const day = String(t.date || ""); if (day) days[day] = (days[day] || 0) + n(t.pnl); });
+    const dayValues = Object.values(days);
+    const rValues = visibleTrades
+      .filter((trade) => Number(trade.riskAmount) > 0 && Number.isFinite(Number(trade.rMultiple)))
+      .map((trade) => Number(trade.rMultiple));
     const bestDay = Math.max(0, ...dayValues);
+    const profitTargetTotal = visibleAccounts.reduce((sum, account) => sum + n(account.profitTarget), 0);
     let eq = visibleAccounts.reduce((s, a) => s + n(a.startingBalance), 0), peak = eq, maxDD = 0;
-    Object.keys(days).sort().forEach((d) => { eq += days[d]; peak = Math.max(peak, eq); maxDD = Math.max(maxDD, peak - eq); });
+    visibleTrades.map((trade, index) => ({ trade, index })).sort((a, b) => String(a.trade.date || "").localeCompare(String(b.trade.date || "")) || a.index - b.index).forEach(({ trade }) => {
+      eq += n(trade.pnl);
+      peak = Math.max(peak, eq);
+      maxDD = Math.max(maxDD, peak - eq);
+    });
     return {
       pnl, count: visibleTrades.length, wins: wins.length, losses: losses.length,
       winRate: visibleTrades.length ? wins.length / visibleTrades.length * 100 : 0,
       profitFactor: grossLoss ? grossWin / grossLoss : grossWin ? Infinity : 0,
       avgR: rValues.length ? rValues.reduce((s, v) => s + v, 0) / rValues.length : 0,
       avgWin: wins.length ? grossWin / wins.length : 0, avgLoss: losses.length ? grossLoss / losses.length : 0,
-      consistency: dayValues.length ? dayValues.filter((v) => v > 0).length / dayValues.length * 100 : 0,
+      consistency: profitTargetTotal > 0 ? bestDay / profitTargetTotal * 100 : 0,
       positiveDays: dayValues.filter((v) => v > 0).length, activeDays: dayValues.length,
-      bestDayShare: positiveTotal ? bestDay / positiveTotal * 100 : 0, maxDD
+      bestDayShare: profitTargetTotal > 0 ? bestDay / profitTargetTotal * 100 : 0, maxDD
     };
   }, [visibleAccounts, visibleTrades]);
   const series = useMemo(() => buildEquitySeries(visibleAccounts, visibleTrades), [visibleAccounts, visibleTrades]);
-  const accountBreakdown = useMemo(() => visibleAccounts.map((account) => ({ account, stats: accountMetrics(account, data.trades.filter((t) => t.accountId === account.id)) })), [visibleAccounts, data.trades]);
+  const accountBreakdown = useMemo(() => visibleAccounts.map((account) => ({ account, stats: accountMetrics(account, data.trades.filter((t) => t.accountId === account.id)), failed: isAccountFailed(account, data.trades) })), [visibleAccounts, data.trades]);
+
+  const requestPayout = async ({ accountId, amount, note }) => {
+    const response = await fetch("/api/payouts", {
+      method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId, amount, note })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Payout request could not be saved.");
+    setPayouts((current) => [result.payout, ...current]);
+    toast("Payout request saved to history");
+    return result;
+  };
+  const updatePayoutStatus = async (id, status) => {
+    if (status === "Paid" && !window.confirm("Confirm that this payout has actually been received?")) return;
+    const response = await fetch("/api/payouts", {
+      method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) { toast(result.error || "Could not update payout status"); return; }
+    setPayouts((current) => current.map((payout) => payout.id === id ? result.payout : payout));
+    toast(status === "Paid" ? "Payout marked as received" : "Payout request cancelled");
+  };
 
   const deleteStoredMedia = (trades) => {
     const keys = trades.flatMap((trade) => (trade.media || []).map((file) => file.key).filter(Boolean));
@@ -902,7 +1155,17 @@ function App() {
     }).catch(() => null));
   };
   const addTrade = (trade) => {
-    setData((d) => ({ ...d, trades: [...d.trades.filter((t) => t.id !== trade.id), trade] }));
+    const existingTrade = data.trades.some((item) => item.id === trade.id);
+    const targetAccount = data.accounts.find((account) => account.id === trade.accountId);
+    if (!existingTrade && isAccountFailed(targetAccount, data.trades)) {
+      toast("Trade entry blocked: this account has failed its MLL.");
+      return;
+    }
+    setData((d) => {
+      const nextTrades = [...d.trades.filter((item) => item.id !== trade.id), trade];
+      const nextAccounts = d.accounts.map((account) => account.id === trade.accountId && isAccountFailed(account, nextTrades) ? { ...account, accountStatus: "Failed" } : account);
+      return { ...d, accounts: nextAccounts, trades: nextTrades };
+    });
     setModal(null); toast("Trade saved");
   };
   const deleteTrade = (id) => {
@@ -937,6 +1200,14 @@ function App() {
     if (!window.confirm("Delete this playbook setup?")) return;
     setData((d) => ({ ...d, playbook: d.playbook.filter((p) => p.id !== id) }));
     toast("Setup deleted");
+  };
+  const saveBacktestTrade = (trade) => {
+    setData((d) => ({ ...d, backtests: [trade, ...(d.backtests || [])] }));
+    toast("Backtest trade saved");
+  };
+  const deleteBacktestTrade = (id) => {
+    setData((d) => ({ ...d, backtests: (d.backtests || []).filter((trade) => trade.id !== id) }));
+    toast("Backtest trade deleted");
   };
 
   const downloadFile = (filename, content, type) => {
@@ -990,7 +1261,9 @@ function App() {
     { id: "trades", label: "Trade logs", icon: "trades" },
     { id: "calendar", label: "Calendar & P&L", icon: "calendar" },
     { id: "analytics", label: "Analytics", icon: "analytics", group: "ANALYSIS" },
+    { id: "backtesting", label: "Backtesting", icon: "trend" },
     { id: "playbook", label: "Playbook", icon: "playbook" },
+    { id: "payouts", label: "Payouts", icon: "payouts", group: "FINANCE" },
     { id: "data", label: "Data center", icon: "data", group: "SYSTEM" }
   ];
   const pageTitle = nav.find((item) => item.id === page)?.label || "Overview";
@@ -999,7 +1272,9 @@ function App() {
     if (page === "trades") return html`<${TradeLogs} trades=${visibleTrades} accounts=${visibleAccounts} accountBreakdown=${accountBreakdown} onNew=${() => setModal({ type: "trade" })} onEdit=${(t) => setModal({ type: "trade", trade: t })} onDelete=${deleteTrade} />`;
     if (page === "calendar") return html`<${CalendarPage} trades=${visibleTrades} accounts=${visibleAccounts} />`;
     if (page === "analytics") return html`<${AnalyticsPage} accounts=${visibleAccounts} trades=${visibleTrades} metrics=${metrics} accountBreakdown=${accountBreakdown} />`;
+    if (page === "backtesting") return html`<${BacktestingPage} trades=${data.backtests || []} onSave=${saveBacktestTrade} onDelete=${deleteBacktestTrade} theme=${theme} />`;
     if (page === "playbook") return html`<${PlaybookPage} items=${data.playbook} onNew=${() => setModal({ type: "playbook" })} onEdit=${(item) => setModal({ type: "playbook", item })} onDelete=${deletePlaybook} />`;
+    if (page === "payouts") return html`<${PayoutsPage} accounts=${data.accounts} trades=${data.trades} payouts=${payouts} onRequest=${requestPayout} onUpdateStatus=${updatePayoutStatus} loading=${payoutLoading} />`;
     return html`<${DataCenter} data=${data} syncStatus=${syncStatus} onExportCsv=${exportCsv} onExportJson=${exportJson} onImport=${importJson} onClear=${clearTrades} onReset=${resetDemo} />`;
   })();
 
@@ -1010,7 +1285,7 @@ function App() {
         ${nav.map((item, i) => html`${item.group ? html`<div className="nav-label">${item.group}</div>` : null}<button type="button" className=${"nav-item " + (page === item.id ? "active" : "")} title=${item.label} aria-label=${item.label} aria-current=${page === item.id ? "page" : undefined} onClick=${() => setPage(item.id)}><${Icon} name=${item.icon} size=${17} /><span>${item.label}</span>${page === item.id ? html`<i className="nav-active-dot"></i>` : null}</button>`)}
       </div>
       <div className="sidebar-bottom">
-        <div className="sidebar-account-card"><div className="sidebar-account-head"><span className="online-dot"></span><strong>${data.accounts.filter((account) => (account.accountStatus || "Active") === "Active").length} active accounts</strong></div><p>Portfolio tracking is enabled.</p><button onClick=${() => setModal({ type: "accounts" })}>Manage accounts <${Icon} name="chevron" size=${12} /></button></div>
+        <div className="sidebar-account-card"><div className="sidebar-account-head"><span className="online-dot"></span><strong>${data.accounts.filter((account) => !isAccountFailed(account, data.trades) && (account.accountStatus || "Active") === "Active").length} active accounts</strong></div><p>Portfolio tracking is enabled.</p><button onClick=${() => setModal({ type: "accounts" })}>Manage accounts <${Icon} name="chevron" size=${12} /></button></div>
         <div className="profile-row"><div className="profile-avatar">TJ</div><div><strong>My Journal</strong><span>Private workspace</span></div><span className="profile-status"></span></div>
       </div>
     </aside>
@@ -1021,15 +1296,15 @@ function App() {
           <div className="sync-indicator"><span className="online-dot"></span><span>${syncStatus}</span></div>
           <button type="button" className="theme-toggle" onClick=${() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label=${theme === "dark" ? "Switch to light mode" : "Switch to dark mode"} title=${theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}><${Icon} name=${theme === "dark" ? "sun" : "moon"} size=${16} /><span>${theme === "dark" ? "Light" : "Dark"}</span></button>
           <label className="account-select-wrap"><span>ACCOUNT</span><select value=${accountFilter} onChange=${(e) => setAccountFilter(e.target.value)}><option value="all">All accounts</option>${data.accounts.map((a) => html`<option value=${a.id}>${a.firm} · ${a.accountType || (a.firm === "FTMO" ? "Forex" : "Futures")} · ${a.accountStage || "Eval"} · ${a.name}</option>`)}</select></label>
-          <button className="btn btn-secondary manage-btn" onClick=${() => setModal({ type: "accounts" })}>Accounts <${Icon} name="settings" size=${14} /></button>
+          <button type="button" className="btn btn-secondary manage-btn" onClick=${() => setModal({ type: "accounts" })}>Accounts <${Icon} name="settings" size=${14} /></button>
         </div>
       </header>
       <div className="page-content">${pageContent}</div>
       <footer className="app-footer"><span>TRADING JOURNAL <i>·</i> PRIVATE TRADING WORKSPACE</span><span>REALIZED DATA ONLY <i>·</i> NOT BROKER CONNECTED</span></footer>
     </main>
     <nav className="mobile-bottom-nav" aria-label="Main navigation">${nav.map((item) => html`<button type="button" className=${"mobile-nav-item " + (page === item.id ? "active" : "")} onClick=${() => setPage(item.id)} aria-current=${page === item.id ? "page" : undefined}><${Icon} name=${item.icon} size=${17} /><span>${item.label === "Calendar & P&L" ? "Calendar" : item.label === "Trade logs" ? "Trades" : item.label === "Data center" ? "Data" : item.label}</span></button>`)}</nav>
-    ${modal?.type === "trade" ? html`<${TradeModal} trade=${modal.trade} accounts=${data.accounts} initialAccountId=${accountFilter === "all" ? data.accounts[0]?.id : accountFilter} onClose=${() => setModal(null)} onSave=${addTrade} />` : null}
-    ${modal?.type === "accounts" ? html`<${AccountsModal} accounts=${data.accounts} onClose=${() => setModal(null)} onAdd=${addAccount} onUpdate=${updateAccount} onDelete=${deleteAccount} />` : null}
+    ${modal?.type === "trade" ? html`<${TradeModal} trade=${modal.trade} accounts=${data.accounts} trades=${data.trades} initialAccountId=${accountFilter === "all" ? data.accounts[0]?.id : accountFilter} onClose=${() => setModal(null)} onSave=${addTrade} />` : null}
+    ${modal?.type === "accounts" ? html`<${AccountsModal} accounts=${data.accounts} trades=${data.trades} onClose=${() => setModal(null)} onAdd=${addAccount} onUpdate=${updateAccount} onDelete=${deleteAccount} />` : null}
     ${modal?.type === "playbook" ? html`<${PlaybookModal} item=${modal.item} onClose=${() => setModal(null)} onSave=${savePlaybook} />` : null}
     ${notice ? html`<div className="toast"><span className="toast-check">✓</span>${notice}</div>` : null}
   </div>`;

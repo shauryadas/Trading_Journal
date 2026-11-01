@@ -4,27 +4,52 @@
   --panel: #ffffff;
   --panel-2: #f8faf8;
   --panel-3: #edf2ee;
+  --surface: #ffffff;
+  --surface-soft: #f5f8f5;
   --line: #e2e8e3;
   --line-strong: #d1dbd3;
   --text: #26342b;
-  --muted: #647269;
-  --dim: #839087;
-  --green: #527b61;
+  --muted: #59675e;
+  --dim: #66736a;
+  --green: #456c52;
   --green-soft: #eaf2ec;
-  --red: #bd6565;
+  --red: #a64f4f;
   --red-soft: #f8eded;
-  --blue: #6483a1;
+  --blue: #4f6f8d;
   --blue-soft: #edf2f7;
-  --amber: #ad8950;
+  --amber: #85652f;
   --amber-soft: #f7f2e8;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--sans);
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0a1017;
+  --panel: #111a24;
+  --panel-2: #151f29;
+  --panel-3: #1b2834;
+  --surface: #111a24;
+  --surface-soft: rgba(255,255,255,.035);
+  --line: #263442;
+  --line-strong: #344657;
+  --text: #eaf0f7;
+  --muted: #a5b3c2;
+  --dim: #8798aa;
+  --green: #66ff99;
+  --green-soft: rgba(102,255,153,.12);
+  --red: #ff7777;
+  --red-soft: rgba(255,119,119,.12);
+  --blue: #8db4d5;
+  --blue-soft: rgba(141,180,213,.12);
+  --amber: #e4bd6c;
+  --amber-soft: rgba(228,189,108,.12);
 }
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font-size: 15px; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid rgba(82,123,97,.45); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 ::selection { background: rgba(82,123,97,.18); }
 .boot-screen { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); }
 .boot-mark { width: 46px; height: 46px; border: 1px solid var(--line-strong); color: var(--green); display: grid; place-items: center; border-radius: 12px; font-size: 23px; font-weight: 700; background: #fff; }

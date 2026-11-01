@@ -1,0 +1,76 @@
+.payout-page{display:flex;flex-direction:column;gap:20px}
+.payout-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.payout-summary-card{background:var(--surface,#101820);border:1px solid var(--border,#273340);border-radius:12px;padding:17px 18px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.payout-summary-card>span{font:10px "DM Mono",monospace;letter-spacing:.12em;color:var(--muted,#84918e)}
+.payout-summary-card strong{font-size:25px;letter-spacing:-.04em;color:var(--text,#edf4ee);font-variant-numeric:tabular-nums}
+.payout-summary-card small{font-size:11px;color:var(--muted,#84918e)}
+.payout-work-grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,.8fr);gap:14px;align-items:start}
+.payout-request-panel,.payout-rules-panel,.payout-history-panel{min-width:0;overflow:hidden}
+.payout-form-body{padding:17px;display:flex;flex-direction:column;gap:15px}
+.payout-form-body .field{min-width:0}
+.payout-account-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:-6px}
+.payout-account-meta span,.payout-account-meta strong{font-size:10px;color:var(--muted,#84918e);padding:5px 8px;border:1px solid var(--border,#273340);border-radius:5px}
+.payout-account-meta strong{color:var(--text,#edf4ee);font-weight:700}
+.payout-eligibility-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:3px}
+.payout-eligibility-head>div{display:flex;flex-direction:column;gap:4px}
+.payout-eligibility-head strong{font-size:13px;color:var(--text,#edf4ee)}
+.payout-eligibility-head>div span{font-size:10px;color:var(--muted,#84918e)}
+.payout-eligibility-state,.payout-history-status{font-size:10px;font-weight:700;padding:5px 8px;border-radius:5px;white-space:nowrap}
+.payout-eligibility-state.is-ready,.payout-history-status.paid{color:#2fc98b;background:rgba(47,201,139,.12)}
+.payout-eligibility-state.is-blocked,.payout-history-status.cancelled,.payout-history-status.rejected{color:#ff7777;background:rgba(255,100,100,.11)}
+.payout-history-status.requested{color:#e4bd6c;background:rgba(228,189,108,.12)}
+.payout-check-list{border:1px solid var(--border,#273340);border-radius:9px;overflow:hidden}
+.payout-check-row{display:flex;align-items:center;gap:10px;padding:10px 11px;border-bottom:1px solid var(--border,#273340);min-width:0}
+.payout-check-row:last-child{border-bottom:0}
+.payout-check-icon{width:19px;height:19px;display:grid;place-items:center;border-radius:50%;font-size:11px;font-weight:800;flex:none}
+.payout-check-icon.pass{background:rgba(47,201,139,.13);color:#2fc98b}
+.payout-check-icon.fail{background:rgba(255,100,100,.13);color:#ff7777}
+.payout-check-row>div{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.payout-check-row strong{font-size:11px;color:var(--text,#edf4ee)}
+.payout-check-row small{font-size:10px;line-height:1.45;color:var(--muted,#84918e)}
+.payout-check-status{font-size:9px;color:var(--muted,#84918e);white-space:nowrap}
+.payout-available{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:13px 14px;border:1px solid var(--border,#273340);border-radius:9px;background:var(--surface-soft,rgba(255,255,255,.025))}
+.payout-available span{font-size:11px;color:var(--muted,#84918e)}
+.payout-available strong{font-size:19px;color:var(--green,#2fc98b);font-variant-numeric:tabular-nums}
+.payout-submit-form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.payout-submit-form .field{min-width:0}
+.payout-submit-form .field input{width:100%;min-width:0}
+.payout-submit{grid-column:1/-1;width:100%;justify-content:center}
+.payout-error{grid-column:1/-1;padding:10px 12px;border-radius:7px;background:rgba(255,100,100,.1);border:1px solid rgba(255,100,100,.3);color:#ff8585;font-size:11px}
+.payout-disclaimer{margin:0;color:var(--muted,#84918e);font-size:10px;line-height:1.6}
+.payout-rules-list{padding:5px 16px 14px}
+.payout-rules-list>div{padding:12px 0;border-bottom:1px solid var(--border,#273340)}
+.payout-rules-list>div:last-child{border-bottom:0}
+.payout-rules-list strong{font-size:11px;color:var(--text,#edf4ee)}
+.payout-rules-list p{font-size:10px;line-height:1.55;color:var(--muted,#84918e);margin:5px 0 0}
+.payout-history-table-wrap{width:100%;overflow-x:auto}
+.payout-history-table{width:100%;border-collapse:collapse;min-width:760px}
+.payout-history-table th{font:9px "DM Mono",monospace;letter-spacing:.1em;color:var(--muted,#84918e);text-align:left;padding:12px 14px;border-bottom:1px solid var(--border,#273340);white-space:nowrap}
+.payout-history-table td{font-size:11px;color:var(--text,#edf4ee);padding:13px 14px;border-bottom:1px solid var(--border,#273340);vertical-align:middle}
+.payout-history-table tbody tr:last-child td{border-bottom:0}
+.payout-history-table td:first-child{display:table-cell}
+.payout-history-table td:first-child strong,.payout-history-table td:first-child small{display:block}
+.payout-history-table td:first-child small{font-size:9px;color:var(--muted,#84918e);margin-top:4px}
+.payout-amount-cell{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.payout-row-actions{display:flex;gap:5px;white-space:nowrap}
+.payout-row-actions .btn{min-height:29px;padding:0 8px;font-size:9px}
+.payout-history-empty,.payout-empty-inline{display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center;padding:32px 18px;text-align:center;color:var(--muted,#84918e);font-size:11px}
+.payout-history-empty strong{font-size:13px;color:var(--text,#edf4ee)}
+@media(max-width:980px){.payout-work-grid{grid-template-columns:1fr}.payout-rules-list{display:grid;grid-template-columns:1fr 1fr;column-gap:20px}}
+@media(max-width:680px){.payout-page{gap:14px}.payout-summary-grid{gap:7px}.payout-summary-card{padding:12px 10px;gap:6px}.payout-summary-card strong{font-size:18px}.payout-summary-card>span{font-size:8px}.payout-summary-card small{font-size:9px}.payout-form-body{padding:13px}.payout-rules-list{grid-template-columns:1fr}.payout-submit-form{grid-template-columns:1fr}.payout-submit-form .field,.payout-submit{grid-column:1}.payout-eligibility-head{align-items:flex-start;flex-direction:column}.payout-check-row{gap:8px;padding:9px}.payout-check-status{font-size:8px}.payout-row-actions{flex-wrap:wrap}}
+@media(max-width:390px){.payout-summary-card strong{font-size:16px}.payout-summary-card{padding:10px 8px}.payout-available strong{font-size:16px}}
+html[data-theme="light"] .payout-summary-card{background:#fff;border-color:#e1e8e2}
+html[data-theme="light"] .payout-summary-card strong,html[data-theme="light"] .payout-eligibility-head strong,html[data-theme="light"] .payout-check-row strong,html[data-theme="light"] .payout-rules-list strong,html[data-theme="light"] .payout-history-empty strong,html[data-theme="light"] .payout-history-table td{color:#26342b}
+html[data-theme="light"] .payout-check-list,html[data-theme="light"] .payout-check-row,html[data-theme="light"] .payout-rules-list>div,html[data-theme="light"] .payout-history-table th,html[data-theme="light"] .payout-history-table td{border-color:#e1e8e2}
+html[data-theme="light"] .payout-account-meta span,html[data-theme="light"] .payout-account-meta strong,html[data-theme="light"] .payout-available{border-color:#e1e8e2}
+html[data-theme="light"] .payout-account-meta strong{color:#26342b}
+html[data-theme="light"] .payout-available{background:#f6f9f6}
+html[data-theme="light"] .payout-history-table th{color:#738078}
+
+/* Light-mode status colors meet readable contrast on tinted status surfaces */
+html[data-theme="light"] .payout-eligibility-state.is-ready,html[data-theme="light"] .payout-history-status.paid{color:#456c52;background:#eaf2ec}
+html[data-theme="light"] .payout-eligibility-state.is-blocked,html[data-theme="light"] .payout-history-status.cancelled,html[data-theme="light"] .payout-history-status.rejected{color:#a64f4f;background:#f8eded}
+html[data-theme="light"] .payout-history-status.requested{color:#85652f;background:#f7f2e8}
+html[data-theme="light"] .payout-check-icon.pass{color:#456c52;background:#eaf2ec}
+html[data-theme="light"] .payout-check-icon.fail{color:#a64f4f;background:#f8eded}
+html[data-theme="light"] .payout-error{color:#a64f4f;background:#f8eded;border-color:#e8caca}

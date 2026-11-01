@@ -1,4 +1,5 @@
 import { db, storage } from "hatchable";
+import { Buffer } from "node:buffer";
 
 // Journal data belongs to the signed-in app end user. The table's own-row
 // policy scopes reads and writes automatically using the authenticated user ID.
@@ -11,12 +12,14 @@ export default async function (req, res) {
       const { rows } = await db.query(
         "SELECT payload, updated_at FROM journal_data"
       );
-      const stored = rows[0]?.payload || null;
+      const candidate = rows[0]?.payload;
+      const stored = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : null;
+      const storedTrades = Array.isArray(stored?.trades) ? stored.trades : [];
       const payload = stored ? {
         ...stored,
-        trades: await Promise.all((stored.trades || []).map(async trade => ({
+        trades: await Promise.all(storedTrades.filter(trade => trade && typeof trade === "object" && !Array.isArray(trade)).map(async trade => ({
           ...trade,
-          media: await Promise.all((trade.media || []).filter(file => file?.key).map(async file => ({
+          media: await Promise.all((Array.isArray(trade.media) ? trade.media : []).filter(file => file && typeof file === "object" && file.key).map(async file => ({
             ...file,
             url: await storage.url(file.key).catch(() => null)
           })))
@@ -25,7 +28,8 @@ export default async function (req, res) {
 
       return res.json({
         payload,
-        updatedAt: rows[0]?.updated_at || null
+        updatedAt: rows[0]?.updated_at || null,
+        ownerId: req.user?.id ? String(req.user.id) : null
       });
     }
 
@@ -43,13 +47,16 @@ export default async function (req, res) {
       }))
     };
     const serialized = JSON.stringify(persisted);
-    if (serialized.length > 2_000_000) {
+    if (Buffer.byteLength(serialized, "utf8") > 2_000_000) {
       return res.status(413).json({ error: "Journal backup is too large." });
     }
+    if (!req.user?.id) return res.status(401).json({ error: "A signed-in journal user is required." });
 
+    // Bind the row owner explicitly. This keeps inserts/upserts aligned with
+    // the end-user identity enforced by the table's own-row policy.
     const { rows } = await db.query(
-      "INSERT INTO journal_data (payload, updated_at) VALUES ($1::jsonb, NOW()) ON CONFLICT (owner_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW() RETURNING updated_at",
-      [serialized]
+      "INSERT INTO journal_data (owner_id, payload, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (owner_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW() RETURNING updated_at",
+      [String(req.user.id), serialized]
     );
 
     return res.json({ ok: true, updatedAt: rows[0]?.updated_at || null });
