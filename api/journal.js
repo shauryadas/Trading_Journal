@@ -55,11 +55,12 @@ export default async function (req, res) {
     if (Buffer.byteLength(serialized, "utf8") > 2_000_000) {
       return res.status(413).json({ error: "Journal backup is too large." });
     }
-    // Bind the row owner explicitly. This keeps inserts/upserts aligned with
-    // the end-user identity enforced by the table's own-row policy.
+    // The table own-row policy supplies the authenticated owner_id default.
+    // Do not supply owner_id explicitly: doing so bypasses the policy default
+    // and causes PostgreSQL to reject valid end-user writes.
     const { rows } = await db.query(
-      "INSERT INTO journal_data (owner_id, payload, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (owner_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW() RETURNING updated_at",
-      [ownerId, serialized]
+      "INSERT INTO journal_data (payload, updated_at) VALUES ($1::jsonb, NOW()) ON CONFLICT (owner_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW() RETURNING updated_at",
+      [serialized]
     );
 
     return res.json({ ok: true, updatedAt: rows[0]?.updated_at || null });
