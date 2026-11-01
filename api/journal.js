@@ -1,11 +1,22 @@
-import { db, storage } from "hatchable";
+import { auth, db, storage } from "hatchable";
 
-export const access = "member";
+// Accept either the project owner/collaborator session or an app end-user
+// session. Keep collaborator IDs unchanged so existing journal rows remain linked.
+export const access = "public";
+
+async function resolveOwner(req, res) {
+  if (req.member?.id != null) return String(req.member.id);
+  const user = req.user || await auth.getUser(req);
+  if (user?.id) return "user:" + String(user.id);
+  res.status(401).json({ error: "login_required", message: "Please sign in to access your trading journal." });
+  return null;
+}
 export const methods = ["GET", "PUT"];
 
 export default async function (req, res) {
   try {
-    const ownerId = req.member.id;
+    const ownerId = await resolveOwner(req, res);
+    if (!ownerId) return;
 
     if (req.method === "GET") {
       const { rows } = await db.query(
