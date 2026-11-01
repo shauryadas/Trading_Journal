@@ -1,0 +1,8 @@
+[auth]
+enabled = true
+providers = ["email"]
+
+[db.tables.journal_data]
+read = "own"
+write = "own"
+owner_column = "owner_id"
