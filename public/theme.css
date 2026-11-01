@@ -65,7 +65,7 @@ body { background: var(--bg); color: var(--text); font-size: 15px; }
 }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 ::selection { background: rgba(82,123,97,.18); }
 .boot-screen { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); }
 .boot-mark { width: 46px; height: 46px; border: 1px solid var(--line-strong); color: var(--green); display: grid; place-items: center; border-radius: 12px; font-size: 23px; font-weight: 700; background: #fff; }
