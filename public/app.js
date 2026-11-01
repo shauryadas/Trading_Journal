@@ -956,7 +956,7 @@ function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, onC
     <div className="payout-summary-grid">
       <article className="payout-summary-card"><span>PAID OUT</span><strong>${money(receivedTotal)}</strong><small>${payouts.filter((payout) => payout.status === "Paid").length} completed payouts</small></article>
       <article className="payout-summary-card"><span>REQUESTED</span><strong>${money(pendingTotal)}</strong><small>${payouts.filter((payout) => payout.status === "Requested").length} awaiting processing</small></article>
-      <article className="payout-summary-card"><span>REQUEST HISTORY</span><strong>${payouts.length}</strong><small>All accounts · all statuses</small></article>
+      <article className="payout-summary-card"><span>REQUEST HISTORY</span><strong>${visiblePayouts.length}</strong><small>Visible records · all accounts and statuses</small></article>
     </div>
     <div className="payout-work-grid">
       <section className="panel payout-request-panel">
