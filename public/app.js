@@ -331,12 +331,55 @@ function TradeModal({ trade, accounts, initialAccountId, onClose, onSave }) {
   const newlyUploaded = useRef([]);
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const preview = n(form.pnl), risk = n(form.riskAmount), r = risk ? preview / risk : 0;
+  const prepareTradeImage = async (file) => {
+    if (!file || !/^image\/(jpeg|png|webp|gif)$/i.test(file.type || "")) throw new Error("Choose a JPG, PNG, WEBP or GIF image.");
+    if (file.size > 20 * 1024 * 1024) throw new Error("Choose an image smaller than 20 MB. Large screenshots are compressed automatically.");
+    let bitmap;
+    try {
+      if (typeof createImageBitmap === "function") bitmap = await createImageBitmap(file);
+      else bitmap = await new Promise((resolve, reject) => {
+        const image = new Image(); const objectUrl = URL.createObjectURL(file);
+        image.onload = () => { URL.revokeObjectURL(objectUrl); resolve(image); };
+        image.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("This image could not be opened. Try JPG or PNG.")); };
+        image.src = objectUrl;
+      });
+    } catch { throw new Error("This image format could not be opened. Please save it as JPG or PNG and try again."); }
+    const scale = Math.min(1, 1920 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("Your browser could not prepare this image.");
+    context.fillStyle = "#ffffff"; context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    if (typeof bitmap.close === "function") bitmap.close();
+    let blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.82));
+    if (!blob) throw new Error("Could not compress this image. Please try another file.");
+    if (blob.size > 2 * 1024 * 1024) {
+      const smaller = document.createElement("canvas");
+      smaller.width = Math.max(1, Math.round(canvas.width * 0.78));
+      smaller.height = Math.max(1, Math.round(canvas.height * 0.78));
+      const smallerContext = smaller.getContext("2d", { alpha: false });
+      smallerContext.fillStyle = "#ffffff"; smallerContext.fillRect(0, 0, smaller.width, smaller.height);
+      smallerContext.drawImage(canvas, 0, 0, smaller.width, smaller.height);
+      blob = await new Promise(resolve => smaller.toBlob(resolve, "image/jpeg", 0.72));
+    }
+    if (!blob || blob.size > 2 * 1024 * 1024) throw new Error("This image is still too large after compression. Try a smaller screenshot.");
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Could not read the compressed image.")); reader.readAsDataURL(blob);
+    });
+    return { base64: dataUrl.split(",")[1], filename: (file.name || "trade-image").replace(/\.[^.]+$/, "") + ".jpg" };
+  };
   const uploadFile = async (file) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const response = await fetch("/api/trade-media", { method: "POST", credentials: "same-origin", body: fd });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Image upload failed.");
+    const prepared = await prepareTradeImage(file);
+    const response = await fetch("/api/trade-media", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...prepared, contentType: "image/jpeg" }) });
+    let result = {}; try { result = await response.json(); } catch {}
+    if (response.status === 401 || result.error === "login_required") {
+      location.assign("/login?next=" + encodeURIComponent(location.pathname + location.search));
+      throw new Error("Please sign in to upload trade images.");
+    }
+    if (!response.ok) throw new Error(result.error || "Image upload failed. Please try again.");
     return result;
   };
   const uploadSelected = async () => {
@@ -412,7 +455,7 @@ function TradeModal({ trade, accounts, initialAccountId, onClose, onSave }) {
       <${Field} label="Trade notes"><textarea rows="3" value=${form.notes} onChange=${(e) => set("notes", e.target.value)} placeholder="Execution quality, emotions, lessons learned…" /></${Field}>
       <div className="media-upload-block">
         <div className="media-upload-head">
-          <div><strong>Trade media</strong><small>Attach chart screenshots in JPG, PNG, WEBP or GIF format (8 MB max each).</small></div>
+          <div><strong>Trade media</strong><small>Attach JPG, PNG, WEBP or GIF screenshots. Images are compressed automatically (20 MB max before compression).</small></div>
           <input ref=${fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden-input" onChange=${(e) => { setSelectedFiles((files) => [...files, ...Array.from(e.target.files || [])]); e.target.value = ""; setMediaError(""); }} />
           <button type="button" className="btn btn-secondary" onClick=${() => fileInputRef.current?.click()}><${Icon} name="upload" size=${15} /> Add media</button>
         </div>
@@ -756,6 +799,10 @@ function App() {
       let loaded = null;
       try {
         const response = await fetch("/api/journal", { method: "GET", credentials: "same-origin" });
+        if (response.status === 401) {
+          location.replace("/login?next=" + encodeURIComponent(location.pathname + location.search));
+          return;
+        }
         if (response.ok) {
           const result = await response.json();
           loaded = result.payload;
@@ -789,6 +836,10 @@ function App() {
           credentials: "same-origin",
           body: JSON.stringify({ payload: data })
         });
+        if (response.status === 401) {
+          location.replace("/login?next=" + encodeURIComponent(location.pathname + location.search));
+          return;
+        }
         setSyncStatus(response.ok ? "Cloud synced" : "Saved on this device");
       } catch (e) {
         setSyncStatus("Saved on this device");
