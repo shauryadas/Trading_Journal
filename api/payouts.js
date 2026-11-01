@@ -148,7 +148,7 @@ export default async function (req, res) {
           params: [ownerId]
         },
         {
-          sql: "INSERT INTO payout_requests (owner_id, account_id, account_name, firm, amount, currency, status, eligibility_snapshot, note) SELECT $1, $2, $3, $4, $5::numeric, 'USD', 'Requested', $9::jsonb, $10 WHERE $5::numeric <= GREATEST(0::numeric, LEAST($6::numeric - " + committedSql + ", $7::numeric + $6::numeric - " + committedSql + " - $8::numeric)) + 0.00001::numeric AND $7::numeric + $6::numeric - " + committedSql + " - $5::numeric >= $8::numeric - 0.00001::numeric AND EXISTS (SELECT 1 FROM journal_data WHERE owner_id = $1 AND updated_at = $11) RETURNING id, account_id, account_name, firm, amount, currency, status, eligibility_snapshot, note, created_at, updated_at",
+          sql: "INSERT INTO payout_requests (account_id, account_name, firm, amount, currency, status, eligibility_snapshot, note) SELECT $2, $3, $4, $5::numeric, 'USD', 'Requested', $9::jsonb, $10 WHERE $5::numeric <= GREATEST(0::numeric, LEAST($6::numeric - " + committedSql + ", $7::numeric + $6::numeric - " + committedSql + " - $8::numeric)) + 0.00001::numeric AND $7::numeric + $6::numeric - " + committedSql + " - $5::numeric >= $8::numeric - 0.00001::numeric AND EXISTS (SELECT 1 FROM journal_data WHERE owner_id = $1 AND updated_at = $11) RETURNING id, account_id, account_name, firm, amount, currency, status, eligibility_snapshot, note, created_at, updated_at",
           params: [ownerId, account.id, String(account.name || "Account"), String(account.firm || ""), amount, result.metrics.pnl, num(account.startingBalance), protectedSafetyNet, JSON.stringify(snapshot), note, journalUpdatedAt]
         }
       ]);
