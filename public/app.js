@@ -558,7 +558,7 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
       return;
     }
   };
-  return html`<${Modal} title=${trade ? "Edit trade" : "Log a trade"} subtitle="Record the result, your risk and the chart evidence for this trade." onClose=${close} wide=${true}>
+  return html`<${Modal} title=${trade ? "Edit trade" : "Trade Log"} subtitle="Record the result, your risk and the chart evidence for this trade." onClose=${close} wide=${true}>
     <form className="modal-form" onSubmit=${submit}>
       ${blockNewEntry ? html`<div role="alert" style=${{ marginBottom: "14px", padding: "12px 14px", borderRadius: "8px", border: "1px solid rgba(255,77,77,.4)", background: "rgba(255,77,77,.1)", color: "var(--red, #ff4d4d)" }}><strong>ACCOUNT FAILED — MLL HIT</strong><div style=${{ marginTop: "4px", fontSize: "12px" }}>This account has reached its Maximum Loss Limit. Trade entry is locked. Select an eligible account to continue.</div></div>` : null}
       <div className="form-grid one">
