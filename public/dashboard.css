@@ -799,7 +799,14 @@ html body .positive{color:#66ff99!important}
 html body .negative{color:#ff4d4d!important}
 
 .overview-metrics-grid{grid-template-columns:repeat(6,minmax(0,1fr))}
-@media(max-width:1200px){.overview-metrics-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.overview-metrics-grid.account-workspace-metrics{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.overview-metrics-grid.account-workspace-metrics .metric-card{padding:15px 13px 13px}
+.overview-metrics-grid.account-workspace-metrics .metric-top{font-size:10px;white-space:nowrap}
+.overview-metrics-grid.account-workspace-metrics .metric-value{font-size:clamp(18px,1.55vw,25px);white-space:nowrap}
+.overview-metrics-grid.account-workspace-metrics .metric-detail{font-size:10px;line-height:1.35}
+@media(max-width:1200px){.overview-metrics-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.overview-metrics-grid.account-workspace-metrics{grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.overview-metrics-grid.account-workspace-metrics .metric-card{padding:12px 9px}.overview-metrics-grid.account-workspace-metrics .metric-top{font-size:9px}.overview-metrics-grid.account-workspace-metrics .metric-value{font-size:18px}}
+@media(max-width:980px){.overview-metrics-grid.account-workspace-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:680px){.overview-metrics-grid.account-workspace-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:680px){.overview-metrics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .data-table,.data-table th,.data-table td,.data-table td *{cursor:default!important}
 .data-table .row-actions button{cursor:pointer!important}
@@ -825,4 +832,4 @@ html body .negative{color:#ff4d4d!important}
 .media-pending span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,.75);font-size:10px}
 .media-error{color:#ff4d4d!important;font-size:11px}
 .media-uploading{color:#66ff99!important;font-size:11px}
-@media(max-width:680px){.media-upload-head{align-items:flex-start;flex-direction:column}.media-attachment-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.trade-chart-wrap{padding:4px 10px 12px}}
+@media(max-width:680px){.media-upload-head{align-items:flex-start;flex-direction:column}.media-attachment-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.trade-chart-wrap{padding:4px 10px 12px}}\n\n/* Account equity curve: improve label legibility and give the plot more vertical room */\n.chart-panel .chart-wrap{padding:2px 20px 14px}\n.chart-panel .chart-legend{font-size:12px}\n.chart-panel .chart-range{font-size:11px}\n.chart-panel .equity-svg{display:block;width:100%;height:auto;aspect-ratio:2.81 / 1;margin-top:10px}\n.chart-panel .chart-xlabels{font-size:11px;padding-top:3px}\n@media(max-width:680px){.chart-panel .chart-wrap{padding:2px 12px 12px}.chart-panel .chart-range{display:none}.chart-panel .chart-xlabels{font-size:10px}}

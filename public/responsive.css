@@ -1,0 +1,65 @@
+/* Responsive navigation and interaction polish */
+.mobile-bottom-nav{display:none}
+.chart-panel .chart-wrap{padding:2px 20px 14px}
+.chart-panel .chart-legend{font-size:12px}
+.chart-panel .chart-range{font-size:11px}
+.chart-panel .equity-svg{display:block;width:100%;height:auto;aspect-ratio:2.81 / 1;margin-top:10px}
+.chart-panel .chart-xlabels{font-size:11px;padding-top:3px}
+@media(max-width:680px){
+  html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
+  .app-shell{min-height:100dvh;padding-bottom:calc(68px + env(safe-area-inset-bottom))}
+  .main-area{min-width:0;width:100%;max-width:100%}
+  .page-content{min-width:0;padding-bottom:28px}
+  .mobile-bottom-nav{
+    display:flex;position:fixed;z-index:45;left:0;right:0;bottom:0;
+    min-height:64px;padding:7px 5px calc(7px + env(safe-area-inset-bottom));
+    background:rgba(7,7,7,.97);border-top:1px solid #292929;
+    backdrop-filter:blur(16px);justify-content:space-around;align-items:stretch;
+  }
+  .mobile-nav-item{
+    flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:4px;padding:5px 1px;border:0;border-radius:7px;background:transparent;
+    color:rgba(255,255,255,.56);font-size:9px;line-height:1.1;font-weight:600;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  }
+  .mobile-nav-item svg{flex:none}
+  .mobile-nav-item span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mobile-nav-item.active{color:#66ff99;background:rgba(102,255,153,.08)}
+  .manage-btn{display:flex!important;height:30px;padding:0 8px;font-size:9px}
+  .topbar{position:relative;flex-wrap:wrap}
+  .topbar-left{min-width:0}
+  .topbar-actions{min-width:0;max-width:100%;flex:1}
+  .account-select-wrap{min-width:0}
+  .account-select-wrap select{max-width:100%}
+  .chart-panel .chart-wrap{padding:2px 12px 12px}
+  .chart-panel .chart-legend{font-size:11px}
+  .chart-panel .chart-range{display:none}
+  .chart-panel .equity-svg{width:100%;height:auto;aspect-ratio:2.81 / 1}
+  .chart-panel .chart-xlabels{font-size:10px}
+  .panel-head{min-width:0}
+  .panel-chip{max-width:45%;overflow:hidden;text-overflow:ellipsis}
+  .modal-scrim{align-items:flex-start;padding: max(10px, env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom))}
+  .modal{width:100%;max-height:calc(100dvh - 20px);overflow-y:auto;overscroll-behavior:contain}
+  .field input,.field select,.field textarea{font-size:16px;min-height:42px}
+  .field textarea{min-height:84px}
+  .modal-actions{position:sticky;bottom:-15px;background:#080808;padding:12px 0 max(5px, env(safe-area-inset-bottom))}
+  .btn,.icon-button,.tiny-icon,.trade-media-trigger{touch-action:manipulation}
+  .toast{right:12px;left:12px;bottom:calc(76px + env(safe-area-inset-bottom));justify-content:center}
+  .app-footer{padding-bottom:18px}
+  .data-card{min-width:0}
+  .data-card-copy{min-width:0}
+  .data-actions .btn{min-height:38px}
+  .calendar-day{min-height:48px}
+}
+@media(max-width:390px){
+  .mobile-nav-item{font-size:8px}
+  .manage-btn{padding:0 6px}
+  .topbar-actions{gap:6px}
+  .account-select-wrap select{width:132px}
+  .chart-panel .panel-head{align-items:flex-start}
+  .chart-panel .panel-chip{font-size:7px}
+  .form-grid.two,.form-grid.three{grid-template-columns:minmax(0,1fr)}
+}
+@media(min-width:681px){
+  .mobile-bottom-nav{display:none!important}
+}

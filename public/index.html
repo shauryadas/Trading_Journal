@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#000000" />
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem("tj-theme")==="light"?"light":"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
   <meta name="description" content="A focused multi-account prop firm trading journal." />
   <title>Trading Journal — Prop Firm Trading</title>
   <link rel="icon" type="image/svg+xml" href="/brand-mark.svg?v=15" />
@@ -11,9 +12,14 @@
   <link rel="stylesheet" href="/theme.css" />
   <link rel="stylesheet" href="/dashboard.css" />
   <link rel="stylesheet" href="/account-health.css" />
+  <link rel="stylesheet" href="/responsive.css" />
+  <link rel="stylesheet" href="/theme-toggle.css" />
 </head>
 <body>
   <div id="root"><div class="boot-screen"><div class="boot-mark"><img src="/brand-mark.svg?v=15" alt="" /></div><div class="boot-copy">Loading Trading Journal…</div></div></div>
+  <script src="/vendor/react.production.min.js"></script>
+  <script src="/vendor/react-dom.production.min.js"></script>
+  <script src="/vendor/htm.umd.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -1,27 +1,15 @@
-import { auth, db, storage } from "hatchable";
+import { db, storage } from "hatchable";
 
-// Accept either the project owner/collaborator session or an app end-user
-// session. Keep collaborator IDs unchanged so existing journal rows remain linked.
-export const access = "public";
-
-async function resolveOwner(req, res) {
-  if (req.member?.id != null) return String(req.member.id);
-  const user = req.user || await auth.getUser(req);
-  if (user?.id) return "user:" + String(user.id);
-  res.status(401).json({ error: "login_required", message: "Please sign in to access your trading journal." });
-  return null;
-}
+// Journal data belongs to the signed-in app end user. The table's own-row
+// policy scopes reads and writes automatically using the authenticated user ID.
+export const access = "user";
 export const methods = ["GET", "PUT"];
 
 export default async function (req, res) {
   try {
-    const ownerId = await resolveOwner(req, res);
-    if (!ownerId) return;
-
     if (req.method === "GET") {
       const { rows } = await db.query(
-        "SELECT payload, updated_at FROM journal_data WHERE owner_id = $1",
-        [ownerId]
+        "SELECT payload, updated_at FROM journal_data"
       );
       const stored = rows[0]?.payload || null;
       const payload = stored ? {
@@ -42,16 +30,16 @@ export default async function (req, res) {
     }
 
     const payload = req.body?.payload;
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      return res.status(400).json({ error: "A valid journal payload is required." });
+    if (!payload || typeof payload !== "object" || Array.isArray(payload) || !Array.isArray(payload.accounts) || !Array.isArray(payload.trades) || !Array.isArray(payload.playbook)) {
+      return res.status(400).json({ error: "A valid journal payload with accounts, trades and playbook arrays is required." });
     }
 
     // Store stable object keys only. Presigned URLs expire and are reissued on GET.
     const persisted = {
       ...payload,
-      trades: (payload.trades || []).map(trade => ({
+      trades: payload.trades.map(trade => ({
         ...trade,
-        media: (trade.media || []).filter(file => file?.key).map(({ url, ...file }) => file)
+        media: (Array.isArray(trade?.media) ? trade.media : []).filter(file => file?.key).map(({ url, ...file }) => file)
       }))
     };
     const serialized = JSON.stringify(persisted);
@@ -60,8 +48,8 @@ export default async function (req, res) {
     }
 
     const { rows } = await db.query(
-      "INSERT INTO journal_data (owner_id, payload, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (owner_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW() RETURNING updated_at",
-      [ownerId, serialized]
+      "INSERT INTO journal_data (payload, updated_at) VALUES ($1::jsonb, NOW()) ON CONFLICT (owner_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW() RETURNING updated_at",
+      [serialized]
     );
 
     return res.json({ ok: true, updatedAt: rows[0]?.updated_at || null });

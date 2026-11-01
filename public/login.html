@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="theme-color" content="#000000" />
+  <title>Sign in · Trading Journal</title>
+  <link rel="icon" type="image/svg+xml" href="/brand-mark.svg" />
+  <style>
+    *{box-sizing:border-box}
+    :root{color-scheme:dark;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:#000;color:#fff}
+    body{min-height:100vh;min-height:100dvh;margin:0;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 50% 0%,rgba(102,255,153,.09),transparent 55%),#000}
+    main{width:min(100%,420px);padding:clamp(24px,6vw,38px);border:1px solid #292929;border-radius:14px;background:#080808;box-shadow:0 24px 90px rgba(0,0,0,.55)}
+    .brand{display:flex;align-items:center;gap:11px;margin-bottom:34px}
+    .brand img{width:42px;height:42px;border:1px solid rgba(102,255,153,.35);border-radius:10px;padding:6px;background:#101710}
+    .brand strong{display:block;font-size:13px;letter-spacing:.08em}.brand strong span{color:#66ff99}
+    .brand small{display:block;margin-top:4px;color:#737373;font-size:9px;letter-spacing:.13em}
+    .eyebrow{color:#66ff99;font-size:10px;letter-spacing:.14em;font-weight:700}
+    h1{font-size:26px;letter-spacing:-.04em;margin:10px 0 8px}
+    .sub{color:rgba(255,255,255,.58);font-size:13px;line-height:1.6;margin:0 0 24px}
+    label{display:block;color:rgba(255,255,255,.76);font-size:11px;font-weight:650;margin-bottom:8px}
+    input,button{width:100%;min-height:48px;border-radius:8px;font:inherit}
+    input{border:1px solid #343434;background:#050505;color:#fff;padding:0 14px;font-size:16px;outline:none}
+    input:focus{border-color:#66ff99;box-shadow:0 0 0 3px rgba(102,255,153,.1)}
+    button{margin-top:12px;border:1px solid #66ff99;background:#66ff99;color:#000;font-size:13px;font-weight:750;cursor:pointer;touch-action:manipulation}
+    button:disabled{opacity:.55;cursor:wait}
+    button.secondary{background:transparent;color:rgba(255,255,255,.7);border-color:#343434;font-weight:600}
+    .msg{min-height:22px;margin:14px 0 0;color:rgba(255,255,255,.6);font-size:12px;line-height:1.5}
+    .msg.err{color:#ff7777}
+    .foot{border-top:1px solid #242424;margin-top:28px;padding-top:16px;color:#666;font-size:10px;line-height:1.6}
+    [hidden]{display:none!important}
+    @media(max-width:480px){body{padding:14px;place-items:center}main{padding:24px 20px;border-radius:12px}.brand{margin-bottom:28px}h1{font-size:24px}}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand"><img src="/brand-mark.svg" alt="" /><div><strong>TRADING<span> JOURNAL</span></strong><small>PRIVATE TRADING WORKSPACE</small></div></div>
+    <div class="eyebrow">WELCOME BACK</div>
+    <h1 id="title">Sign in to your journal</h1>
+    <p class="sub" id="sub">Enter your email and we’ll send you a secure one-time sign-in code. No password needed.</p>
+    <form id="form" novalidate>
+      <div id="email-row">
+        <label for="email">Email address</label>
+        <input id="email" name="email" type="email" placeholder="you@example.com" autocomplete="username webauthn" autocapitalize="off" autocorrect="off" spellcheck="false" required />
+      </div>
+      <div id="code-row" hidden>
+        <label for="code">6-digit verification code</label>
+        <input id="code" name="code" type="text" inputmode="numeric" placeholder="000000" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" />
+      </div>
+      <button id="submit" type="submit">Email me a sign-in code</button>
+      <button id="back" class="secondary" type="button" hidden>Use a different email</button>
+    </form>
+    <div id="passkey" hidden>
+      <button id="passkey-add" type="button">Set up a passkey</button>
+      <button id="passkey-skip" class="secondary" type="button">Not now</button>
+    </div>
+    <p class="msg" id="msg" role="status" aria-live="polite"></p>
+    <div class="foot">Your trading journal is private to your account. Sign in to sync your accounts, trades, analytics and playbook across devices.</div>
+  </main>
+<script>
+(function(){
+  var A=window.hatchable&&window.hatchable.auth;
+  var form=document.getElementById("form"),emailRow=document.getElementById("email-row"),codeRow=document.getElementById("code-row");
+  var emailEl=document.getElementById("email"),codeEl=document.getElementById("code"),submit=document.getElementById("submit"),back=document.getElementById("back");
+  var msg=document.getElementById("msg"),sub=document.getElementById("sub"),title=document.getElementById("title");
+  var passkey=document.getElementById("passkey"),passkeyAdd=document.getElementById("passkey-add"),passkeySkip=document.getElementById("passkey-skip");
+  var step="email",hasPasskey=false,DECLINED="passkey_offer_declined";
+  function safeNext(){
+    var raw=new URLSearchParams(location.search).get("next")||"/";
+    if(typeof raw!=="string"||raw.charAt(0)!=="/"||raw.charAt(1)==="/")return "/";
+    for(var i=0;i<raw.length;i++){var c=raw.charCodeAt(i);if(c<32||c===92||c===127)return "/";}
+    return raw;
+  }
+  function say(t,kind){msg.textContent=t||"";msg.className="msg "+(kind||"");}
+  function done(){location.replace(safeNext());}
+  function declined(){try{return localStorage.getItem(DECLINED)==="1";}catch(e){return false;}}
+  function decline(){try{localStorage.setItem(DECLINED,"1");}catch(e){}}
+  function finish(){
+    if(hasPasskey||declined()||!A.registerPasskey||!A.supportsPasskeys||!A.supportsPasskeys()){done();return;}
+    step="passkey";form.hidden=true;title.textContent="You’re signed in";
+    sub.textContent="Add a passkey to sign in next time with your fingerprint, face, or screen lock.";
+    say("");passkey.hidden=false;passkeyAdd.focus();
+  }
+  if(!A){say("Sign-in is unavailable right now. Please refresh.", "err");submit.disabled=true;return;}
+  A.getSession().then(function(s){if(s&&s.user)done();}).catch(function(){});
+  if(A.attachPasskeyAutofill){try{A.attachPasskeyAutofill(emailEl).then(function(r){if(r&&r.user)done();}).catch(function(){});}catch(e){}}
+  passkeyAdd.addEventListener("click",function(){
+    passkeyAdd.disabled=true;passkeySkip.disabled=true;say("");
+    A.registerPasskey().then(function(r){if(!r)decline();done();}).catch(function(err){
+      passkeyAdd.disabled=false;passkeySkip.disabled=false;say((err&&err.message)||"Could not save the passkey. You can continue without one.","err");
+    });
+  });
+  passkeySkip.addEventListener("click",function(){decline();done();});
+  back.addEventListener("click",function(){
+    step="email";codeRow.hidden=true;emailRow.hidden=false;back.hidden=true;submit.textContent="Email me a sign-in code";
+    sub.textContent="Enter your email and we’ll send you a secure one-time sign-in code. No password needed.";say("");emailEl.focus();
+  });
+  form.addEventListener("submit",function(e){
+    e.preventDefault();if(step==="passkey")return;submit.disabled=true;
+    if(step==="email"){
+      var email=(emailEl.value||"").trim();
+      if(!email){submit.disabled=false;say("Enter your email address.","err");return;}
+      A.startLogin({email:email}).then(function(r){
+        hasPasskey=!!(r&&r.has_passkey);
+        if(hasPasskey&&A.supportsPasskeys&&A.supportsPasskeys()){
+          return A.signInWithPasskey({email:email}).then(function(d){if(d&&d.user){done();return null;}return "code";}).catch(function(){return "code";});
+        }
+        return "code";
+      }).then(function(next){
+        if(next!=="code")return;step="code";emailRow.hidden=true;codeRow.hidden=false;back.hidden=false;
+        submit.textContent="Verify and sign in";sub.textContent="Enter the code sent to "+emailEl.value.trim()+".";
+        say("Code sent. It expires in 10 minutes.");codeEl.focus();
+      }).catch(function(err){
+        say(err&&err.status===429?"Too many attempts. Try again in a moment.":((err&&err.message)||"Could not send the code. Check the address and try again."),"err");
+      }).then(function(){submit.disabled=false;});
+      return;
+    }
+    A.verifyCode({email:(emailEl.value||"").trim(),code:(codeEl.value||"").trim()}).then(function(d){
+      if(d&&d.user){finish();return;}say("That code did not work. Try again.","err");
+    }).catch(function(err){say((err&&err.message)||"That code did not work. Try again.","err");}).then(function(){submit.disabled=false;});
+  });
+  emailEl.focus();
+})();
+</script>
+</body>
+</html>
