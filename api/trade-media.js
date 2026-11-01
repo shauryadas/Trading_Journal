@@ -1,8 +1,8 @@
-import { storage } from "hatchable";
+import { auth, storage } from "hatchable";
 import { randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
 
-export const access = "member";
+export const access = "public";
 export const methods = ["POST", "DELETE"];
 
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -27,8 +27,15 @@ function validImage(buffer, type) {
 
 export default async function (req, res) {
   try {
-    const memberId = req.member.id;
-    const prefix = "trade-media/" + memberId + "/";
+    // Preserve the original collaborator storage prefix; isolate app users.
+    const memberId = req.member?.id;
+    const user = memberId == null ? (req.user || await auth.getUser(req)) : null;
+    if (memberId == null && !user?.id) {
+      return res.status(401).json({ error: "login_required", message: "Please sign in before uploading trade images." });
+    }
+    const prefix = memberId != null
+      ? "trade-media/" + String(memberId) + "/"
+      : "trade-media/user-" + Buffer.from(String(user.id)).toString("base64url") + "/";
 
     if (req.method === "DELETE") {
       const key = String(req.body?.key || "");
@@ -49,7 +56,10 @@ export default async function (req, res) {
     } else if (typeof req.body?.base64 === "string") {
       filename = String(req.body.filename || "trade-image");
       contentType = String(req.body.contentType || "");
-      const encoded = req.body.base64.replace(/^data:[^,]+,/, "");
+      const encoded = req.body.base64.replace(/^data:[^,]+,/, "").replace(/\s/g, "");
+      if (encoded.length > Math.ceil(MAX_BYTES * 4 / 3) + 8) {
+        return res.status(413).json({ error: "Image too large. Maximum size is 8 MB after compression." });
+      }
       buffer = Buffer.from(encoded, "base64");
     }
 
