@@ -1,6 +1,6 @@
 /* Persistent light/dark appearance themes */
-.theme-toggle{height:32px;min-width:66px;padding:0 9px;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid #383838;border-radius:7px;background:#0b0b0b;color:#fff;font-size:10px;font-weight:650;white-space:nowrap;transition:background .18s,border-color .18s,color .18s}
-.theme-toggle:hover{border-color:#66ff99;background:#151515}
+.theme-toggle{height:32px;min-width:66px;padding:0 9px;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--line-strong);border-radius:7px;background:var(--panel);color:var(--text);font-size:10px;font-weight:650;white-space:nowrap;transition:background .18s,border-color .18s,color .18s}
+.theme-toggle:hover{border-color:var(--green);background:var(--panel-2)}
 .theme-toggle svg{flex:none}
 @media(max-width:680px){.theme-toggle{height:30px;min-width:32px;padding:0 8px}.theme-toggle span{display:none}.topbar-actions{gap:7px}}
 html[data-theme="light"]{color-scheme:light!important}
@@ -25,8 +25,8 @@ html[data-theme="light"] .topbar{background:rgba(255,255,255,.94)!important;bord
 html[data-theme="light"] .breadcrumb{color:#66736a!important}
 html[data-theme="light"] .breadcrumb strong{color:#344239!important}
 html[data-theme="light"] .sync-indicator,html[data-theme="light"] .account-select-wrap{color:#59675e!important}
-html[data-theme="light"] .theme-toggle{background:#fff!important;border-color:#d1dbd3!important;color:#344239!important}
-html[data-theme="light"] .theme-toggle:hover{background:#f1f6f1!important;border-color:#456c52!important}
+html[data-theme="light"] .theme-toggle{background:var(--panel)!important;border-color:var(--line-strong)!important;color:var(--text)!important}
+html[data-theme="light"] .theme-toggle:hover{background:var(--panel-2)!important;border-color:var(--green)!important}
 html[data-theme="light"] select,html[data-theme="light"] input,html[data-theme="light"] textarea,html[data-theme="light"] .search-box{background:#fff!important;border-color:#d1dbd3!important;color:#26342b!important}
 html[data-theme="light"] input::placeholder,html[data-theme="light"] textarea::placeholder{color:#66736a!important}
 html[data-theme="light"] .eyebrow{color:#59675e!important}
