@@ -1,0 +1,966 @@
+import React, { useEffect, useMemo, useRef, useState } from "https://esm.sh/react@18.3.1";
+import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+import htm from "https://esm.sh/htm@3.1.1";
+
+const html = htm.bind(React.createElement);
+const STORAGE_KEY = "edge-journal-v1";
+const todayISO = () => {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
+const shiftDate = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
+const uid = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : "id_" + Date.now() + "_" + Math.random().toString(36).slice(2));
+const n = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
+const money = (v, currency = "USD") => {
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 2 }).format(n(v));
+  } catch {
+    return "$" + n(v).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  }
+};
+const signedMoney = (v, currency = "USD") => (n(v) > 0 ? "+" : "") + money(v, currency);
+const shortDate = (iso) => iso ? new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+const fullDate = (iso) => iso ? new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
+const pnlClass = (v) => n(v) > 0 ? "positive" : n(v) < 0 ? "negative" : "neutral";
+const calcPnl = (trade) => {
+  if (trade?.entry == null || trade?.exit == null) return n(trade?.pnl);
+  const entry = n(trade.entry), exit = n(trade.exit), qty = n(trade.quantity), point = n(trade.pointValue) || 1, fees = n(trade.fees);
+  return (trade.side === "Short" ? entry - exit : exit - entry) * qty * point - fees;
+};
+const calcRisk = (trade) => {
+  if (trade?.entry == null || trade?.stop == null) return n(trade?.riskAmount);
+  return Math.abs(n(trade.entry) - n(trade.stop)) * n(trade.quantity) * (n(trade.pointValue) || 1);
+};
+const calcR = (trade) => calcRisk(trade) > 0 ? calcPnl(trade) / calcRisk(trade) : 0;
+const clone = (obj) => JSON.parse(JSON.stringify(obj));
+
+const DEMO_DATA = (() => {
+  const accounts = [
+    { id: "apex-pa", firm: "Apex", accountType: "Futures", accountStage: "Funded", accountStatus: "Active", name: "Apex 50K PA", startingBalance: 50000, dailyLoss: 1000, maxDrawdown: 2500, profitTarget: 3000, consistencyCap: 30 },
+    { id: "ftmo-100", firm: "FTMO", accountType: "Forex", accountStage: "Step 1", accountStatus: "Active", name: "FTMO 100K Challenge", startingBalance: 100000, dailyLoss: 5000, maxDrawdown: 10000, profitTarget: 10000, consistencyCap: 30 },
+    { id: "topstep-50", firm: "Topstep", accountType: "Futures", accountStage: "Eval", accountStatus: "Active", name: "Topstep 50K Combine", startingBalance: 50000, dailyLoss: 1000, maxDrawdown: 2000, profitTarget: 3000, consistencyCap: 40 }
+  ];
+  const raw = [
+    { accountId: "apex-pa", symbol: "NQ", market: "Futures", side: "Long", date: shiftDate(0), entry: 20000, exit: 20013, stop: 19987, quantity: 1, pointValue: 25, fees: 0, setup: "Opening range breakout", notes: "Waited for retest; clean continuation." },
+    { accountId: "ftmo-100", symbol: "EURUSD", market: "Forex", side: "Short", date: shiftDate(-1), entry: 1.085, exit: 1.08275, stop: 1.087, quantity: 1, pointValue: 100000, fees: 0, setup: "London session sweep", notes: "Liquidity sweep into prior day high." },
+    { accountId: "apex-pa", symbol: "ES", market: "Futures", side: "Long", date: shiftDate(-2), entry: 6000, exit: 5997.1, stop: 5997, quantity: 1, pointValue: 50, fees: 0, setup: "VWAP reclaim", notes: "Stopped after failed hold." },
+    { accountId: "topstep-50", symbol: "MNQ", market: "Futures", side: "Short", date: shiftDate(-3), entry: 20000, exit: 19979, stop: 20021, quantity: 10, pointValue: 2, fees: 0, setup: "Trend pullback", notes: "Lower high confirmation." },
+    { accountId: "ftmo-100", symbol: "XAUUSD", market: "Forex", side: "Long", date: shiftDate(-4), entry: 2700, exit: 2703.6, stop: 2696.4, quantity: 1, pointValue: 50, fees: 0, setup: "Demand zone reaction", notes: "Partial taken at first target." },
+    { accountId: "apex-pa", symbol: "NQ", market: "Futures", side: "Short", date: shiftDate(-5), entry: 20030, exit: 20033.8, stop: 20040, quantity: 1, pointValue: 25, fees: 0, setup: "Failed breakout", notes: "Entered late; review patience." },
+    { accountId: "topstep-50", symbol: "ES", market: "Futures", side: "Long", date: shiftDate(-7), entry: 5990, exit: 5995.2, stop: 5984.8, quantity: 1, pointValue: 50, fees: 0, setup: "Opening drive", notes: "Good execution; trailed behind structure." },
+    { accountId: "ftmo-100", symbol: "EURUSD", market: "Forex", side: "Long", date: shiftDate(-9), entry: 1.08, exit: 1.0789, stop: 1.078, quantity: 1, pointValue: 100000, fees: 0, setup: "Range expansion", notes: "Invalidated below the range." }
+  ];
+  const trades = raw.map((t) => ({ ...t, id: uid(), pnl: calcPnl(t), riskAmount: calcRisk(t), rMultiple: calcR(t) }));
+  const playbook = [
+    { id: "pb-1", name: "Opening Range Breakout", market: "Futures", bias: "Both", entryRules: "Mark the first 15-minute range. Wait for a decisive close outside the range, then enter on a controlled retest with volume confirmation.", stopRule: "Stop beyond the retest swing or back inside the opening range. Risk fixed at 0.5–1R.", targets: "Scale 50% at 1R; trail the remainder to 2R or next liquidity pool.", notes: "Avoid the first impulsive candle. No trade if the opening range is unusually wide." },
+    { id: "pb-2", name: "Session Liquidity Sweep", market: "Forex", bias: "Both", entryRules: "Identify prior session high/low. Wait for a sweep and a close back inside the range; enter on lower-timeframe structure shift.", stopRule: "Beyond the sweep extreme with a small volatility buffer.", targets: "Target opposing session liquidity. Minimum planned reward-to-risk 1.8:1.", notes: "Best during London and New York overlap. Avoid major news releases." },
+    { id: "pb-3", name: "VWAP Reclaim", market: "Futures", bias: "Long", entryRules: "Price reclaims VWAP after a failed push lower. Require a higher low and acceptance above VWAP.", stopRule: "Below the higher-low pivot. Exit if price loses VWAP on a closing basis.", targets: "Prior swing high, then 2R extension.", notes: "Prefer alignment with higher-timeframe trend." }
+  ];
+  return { accounts, trades, playbook };
+})();
+
+const ICONS = {
+  overview: "M3 3h7v7H3z M14 3h7v4h-7z M14 10h7v11h-7z M3 13h7v8H3z",
+  trades: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+  calendar: "M4 5h16a1 1 0 0 1 1 1v14H3V6a1 1 0 0 1 1-1z M8 3v4M16 3v4M3 10h18",
+  analytics: "M4 19V5M4 19h17M8 15l3-4 3 2 5-7",
+  playbook: "M5 3h12a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2z M5 17a2 2 0 0 1 2-2h12M9 7h6M9 10h5",
+  data: "M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3",
+  plus: "M12 5v14M5 12h14",
+  search: "M20 20l-4.5-4.5M18 10.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0z",
+  chevron: "m9 18 6-6-6-6",
+  left: "m15 18-6-6 6-6",
+  right: "m9 18 6-6-6-6",
+  edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z",
+  trash: "M3 6h18M8 6V4h8v2m3 0-1 15H6L5 6m4 4v7m6-7v7",
+  close: "M18 6 6 18M6 6l12 12",
+  upload: "M12 16V4m0 0L8 8m4-4 4 4M4 16v4h16v-4",
+  download: "M12 4v12m0 0 4-4m-4 4-4-4M4 20h16",
+  shield: "M12 3 20 6v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6z M9 12l2 2 4-4",
+  trend: "M3 17l6-6 4 4 8-9M15 6h6v6",
+  menu: "M4 6h16M4 12h16M4 18h16",
+  settings: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.6 2.8-.2-.1a1.7 1.7 0 0 0-1.9.3l-.1.1h-3.2l-.1-.2a1.7 1.7 0 0 0-1.5-1l-.2.1H8l-.1-.2a1.7 1.7 0 0 0-1.9-.3l-.1.1-1.6-2.8.1-.1a1.7 1.7 0 0 0 .3-1.9l-.1-.2v-2.6l.1-.2a1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.6-2.8.1.1a1.7 1.7 0 0 0 1.9-.3l.1-.1h3.2l.1.2a1.7 1.7 0 0 0 1.5 1l.2-.1H16l.1.2a1.7 1.7 0 0 0 1.9.3l.1-.1 1.6 2.8-.1.1a1.7 1.7 0 0 0-.3 1.9l.1.2v2.6z"
+};
+function Icon({ name, size = 18 }) {
+  return html`<svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d=${ICONS[name] || ICONS.overview} /></svg>`;
+}
+
+function Modal({ title, subtitle, onClose, children, wide = false }) {
+  return html`<div className="modal-scrim" onMouseDown=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <section className=${"modal " + (wide ? "modal-wide" : "")}>
+      <header className="modal-head">
+        <div><h2>${title}</h2>${subtitle ? html`<p>${subtitle}</p>` : null}</div>
+        <button className="icon-button" onClick=${onClose} aria-label="Close"><${Icon} name="close" /></button>
+      </header>
+      ${children}
+    </section>
+  </div>`;
+}
+
+function Field({ label, hint, children }) {
+  return html`<label className="field"><span className="field-label">${label}</span>${children}${hint ? html`<small>${hint}</small>` : null}</label>`;
+}
+
+function MetricCard({ label, value, detail, tone = "normal", icon = "trend" }) {
+  return html`<article className="metric-card">
+    <div className="metric-top"><span>${label}</span><span className=${"metric-icon " + tone}><${Icon} name=${icon} size=${16} /></span></div>
+    <div className=${"metric-value " + (tone === "green" ? "positive" : tone === "red" ? "negative" : "")}>${value}</div>
+    <div className="metric-detail">${detail}</div>
+  </article>`;
+}
+
+function SectionHeading({ eyebrow, title, description, action }) {
+  return html`<div className="section-heading">
+    <div><div className="eyebrow">${eyebrow}</div><h1>${title}</h1>${description ? html`<p>${description}</p>` : null}</div>
+    ${action || null}
+  </div>`;
+}
+
+function ImageLightbox({ file, onClose }) {
+  return html`<div className="media-lightbox" onMouseDown=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <section className="media-lightbox-panel" role="dialog" aria-modal="true" aria-label="Trade image preview">
+      <div className="media-lightbox-head"><strong>${file.name || "Trade image"}</strong><button type="button" className="icon-button" onClick=${onClose} aria-label="Close image preview"><${Icon} name="close" size=${18} /></button></div>
+      <img src=${file.url} alt=${file.name || "Trade image preview"} />
+      <div className="media-lightbox-foot">Click outside the image or press the close button to return to the trade log.</div>
+    </section>
+  </div>`;
+}
+
+function TradeTable({ trades, accounts, onEdit, onDelete, compact = false }) {
+  const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a]));
+  const rows = compact ? trades.slice(0, 5) : trades;
+  const [previewImage, setPreviewImage] = useState(null);
+  return html`<div className="table-scroll"><table className="data-table">
+    <thead><tr><th>Trade</th><th>Account</th><th>Date</th><th>Side</th><th>Position Size</th><th>Net P&L</th><th>R</th><th>Media</th><th></th></tr></thead>
+    <tbody>
+      ${rows.length ? rows.map((t) => {
+        const attachments = t.media || [];
+        const firstImage = attachments.find((file) => file.url);
+        return html`<tr key=${t.id}>
+        <td><div className="symbol-cell"><strong>${t.symbol}</strong><small>${t.market} · ${t.setup || "No setup"}</small><small className="trade-tags-line">${t.marketBias || "Neutral"} · ${String(t.emotionState || "calm").replace(/^./, (c) => c.toUpperCase())}</small></div></td>
+        <td><span className="account-pill">${accountMap[t.accountId]?.firm || "Account"}</span></td>
+        <td className="muted-cell">${shortDate(t.date)}</td>
+        <td><span className=${"side-pill " + (t.side === "Long" ? "long" : "short")}>${t.side}</span></td>
+        <td className="muted-cell">${t.positionSize || "—"}</td>
+        <td className=${"mono-cell pnl-cell " + pnlClass(t.pnl)}>${signedMoney(t.pnl)}</td>
+        <td className=${"mono-cell " + pnlClass(t.rMultiple)}>${n(t.rMultiple).toFixed(2)}R</td>
+        <td className="muted-cell">${firstImage ? html`<button type="button" className="trade-media-trigger" onClick=${() => setPreviewImage(firstImage)} title="Preview attached image"><img src=${firstImage.url} alt=${firstImage.name || "Trade attachment"} /><span>${attachments.length > 1 ? "+" + (attachments.length - 1) : "View"}</span></button>` : attachments.length ? attachments.length + " file(s)" : "—"}</td>
+        <td><div className="row-actions"><button className="tiny-icon" onClick=${() => onEdit(t)} title="Edit"><${Icon} name="edit" size=${14} /></button><button className="tiny-icon danger" onClick=${() => onDelete(t.id)} title="Delete"><${Icon} name="trash" size=${14} /></button></div></td>
+      </tr>`;
+      }) : html`<tr><td colSpan="9"><div className="empty-state small-empty"><strong>No trades found</strong><span>Add a closed trade or adjust your filters.</span></div></td></tr>`}
+    </tbody>
+  </table>
+  ${previewImage ? html`<${ImageLightbox} file=${previewImage} onClose=${() => setPreviewImage(null)} />` : null}
+  </div>`;
+}
+
+function EquityChart({ series, currency = "USD" }) {
+  const W = 760, H = 238, L = 12, R = 12, T = 14, B = 30;
+  const vals = series.map((p) => p.value);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const spread = maxV - minV || Math.max(1, Math.abs(maxV) * 0.01);
+  const lo = minV - spread * 0.12, hi = maxV + spread * 0.12;
+  const x = (i) => L + (series.length <= 1 ? 0 : (i / (series.length - 1)) * (W - L - R));
+  const y = (v) => T + ((hi - v) / (hi - lo)) * (H - T - B);
+  const points = series.map((p, i) => ({ x: x(i), y: y(p.value), ...p }));
+  const line = points.map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + " " + p.y.toFixed(1)).join(" ");
+  const area = line + " L " + points[points.length - 1].x + " " + (H - B) + " L " + points[0].x + " " + (H - B) + " Z";
+  const ticks = [0, 1, 2, 3].map((i) => hi - ((hi - lo) / 3) * i);
+  return html`<div className="chart-wrap">
+    <div className="chart-legend"><span><i></i> Portfolio equity</span><span className="chart-range">${shortDate(series[0]?.date)} — ${shortDate(series[series.length - 1]?.date)}</span></div>
+    <svg className="equity-svg" viewBox=${"0 0 " + W + " " + H} role="img" aria-label="Combined equity curve">
+      <defs><linearGradient id="equity-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#66ff99" stopOpacity=".22" /><stop offset="100%" stopColor="#35d39a" stopOpacity="0" /></linearGradient></defs>
+      ${ticks.map((v) => html`<g><line x1=${L} x2=${W - R} y1=${y(v)} y2=${y(v)} stroke="#253243" strokeDasharray="3 5" /><text x=${L} y=${y(v) - 6} fill="#6f8092" fontSize="10">${Math.round(v).toLocaleString("en-US")}</text></g>`)}
+      <path d=${area} fill="url(#equity-fill)" />
+      <path d=${line} fill="none" stroke="#66ff99" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      ${points.map((p) => html`<circle cx=${p.x} cy=${p.y} r="3.2" fill="#000000" stroke="#66ff99" strokeWidth="1.7"><title>${fullDate(p.date)} · ${money(p.value, currency)}</title></circle>`)}
+    </svg>
+    <div className="chart-xlabels"><span>${shortDate(series[0]?.date)}</span><span>${shortDate(series[Math.floor((series.length - 1) / 2)]?.date)}</span><span>${shortDate(series[series.length - 1]?.date)}</span></div>
+  </div>`;
+}
+
+function TradePnlChart({ trades }) {
+  const daily = {};
+  trades.forEach((trade) => { daily[trade.date] = (daily[trade.date] || 0) + n(trade.pnl); });
+  const dates = Object.keys(daily).sort();
+  let running = 0;
+  const series = dates.map((date) => ({ date, value: (running += daily[date]) }));
+  if (!series.length) {
+    return html`<section className="panel trade-pnl-chart"><div className="panel-head"><div><div className="eyebrow">TRADE PERFORMANCE</div><h3>Cumulative realized P&L</h3></div><span className="panel-chip">No closed trades</span></div><div className="trade-chart-empty">Add trades to build your performance line.</div></section>`;
+  }
+  const W = 900, H = 190, L = 16, R = 16, T = 14, B = 25;
+  const values = series.map((point) => point.value);
+  const min = Math.min(0, ...values), max = Math.max(0, ...values);
+  const spread = max - min || Math.max(1, Math.abs(max) * 0.08);
+  const low = min - spread * 0.12, high = max + spread * 0.12;
+  const x = (index) => L + (series.length === 1 ? (W - L - R) / 2 : index / (series.length - 1) * (W - L - R));
+  const y = (value) => T + (high - value) / (high - low) * (H - T - B);
+  const points = series.map((point, index) => ({ ...point, x: x(index), y: y(point.value) }));
+  const line = points.map((point, index) => (index ? "L" : "M") + point.x.toFixed(1) + " " + point.y.toFixed(1)).join(" ");
+  const baseline = y(0);
+  const area = line + " L " + points[points.length - 1].x + " " + baseline + " L " + points[0].x + " " + baseline + " Z";
+  const last = series[series.length - 1];
+  const ticks = [high, (high + low) / 2, low];
+  return html`<section className="panel trade-pnl-chart">
+    <div className="panel-head"><div><div className="eyebrow">TRADE PERFORMANCE</div><h3>Cumulative realized P&L</h3></div><span className="panel-chip">${series.length} trading days</span></div>
+    <div className="chart-wrap trade-chart-wrap">
+      <div className="chart-legend"><span><i></i> Running net P&L</span><strong className=${pnlClass(last.value)}>${signedMoney(last.value)}</strong><span className="chart-range">${shortDate(series[0].date)} — ${shortDate(last.date)}</span></div>
+      <svg className="equity-svg trade-pnl-svg" viewBox=${"0 0 " + W + " " + H} role="img" aria-label="Cumulative realized trade profit and loss line chart">
+        <defs><linearGradient id="trade-pnl-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#66ff99" stopOpacity=".18" /><stop offset="100%" stopColor="#66ff99" stopOpacity="0" /></linearGradient></defs>
+        ${ticks.map((value) => html`<g><line x1=${L} x2=${W - R} y1=${y(value)} y2=${y(value)} stroke="#292929" strokeDasharray="3 5" /><text x=${L} y=${y(value) - 5} fill="rgba(255,255,255,.48)" fontSize="10">${money(value)}</text></g>`)}
+        <line x1=${L} x2=${W - R} y1=${baseline} y2=${baseline} stroke="rgba(255,255,255,.3)" strokeDasharray="4 4" />
+        <path d=${area} fill="url(#trade-pnl-fill)" />
+        <path d=${line} fill="none" stroke="#66ff99" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        ${points.map((point) => html`<circle cx=${point.x} cy=${point.y} r="3.1" fill="#000" stroke="#66ff99" strokeWidth="1.6"><title>${fullDate(point.date)} · ${signedMoney(point.value)}</title></circle>`)}
+      </svg>
+      <div className="chart-xlabels"><span>${shortDate(series[0].date)}</span><span>${shortDate(series[Math.floor((series.length - 1) / 2)].date)}</span><span>${shortDate(last.date)}</span></div>
+    </div>
+  </section>`;
+}
+
+function AccountHealthStrip({ accountBreakdown }) {
+  return html`<section className="panel account-health-panel">
+    <div className="panel-head"><div><div className="eyebrow">INDIVIDUAL ACCOUNT LIMITS & P&L</div><h3>Account balance and progress</h3></div><span className="panel-chip">${accountBreakdown.length} ${accountBreakdown.length === 1 ? "account" : "accounts"}</span></div>
+    <div className="account-health-list">
+      ${accountBreakdown.map(({ account, stats }) => {
+        const mll = n(account.maxDrawdown);
+        const drawdown = n(stats.maxDD);
+        const mllUse = mll > 0 ? Math.min(100, drawdown / mll * 100) : 0;
+        const mllRemaining = mll > 0 ? Math.max(0, mll - drawdown) : 0;
+        const starting = n(account.startingBalance);
+        const balance = starting + n(stats.pnl);
+        const target = n(account.profitTarget);
+        const targetProgress = target > 0 ? Math.max(0, Math.min(100, n(stats.pnl) / target * 100)) : 0;
+        const targetRemaining = target > 0 ? Math.max(0, target - n(stats.pnl)) : 0;
+        const lossWidth = mll > 0 ? Math.min(50, mllUse / 2) : 0;
+        const profitWidth = target > 0 ? Math.min(50, targetProgress / 2) : 0;
+        const stage = account.accountStage || "Eval";
+        const status = account.accountStatus || "Active";
+        return html`<article className="account-health-card account-range-card" key=${account.id}>
+          <div className="account-health-heading"><div><strong>${account.name}</strong><span>${account.firm} · ${account.accountType || (account.firm === "FTMO" ? "Forex" : "Futures")}</span></div><div className="account-tag-row"><span className="account-stage-tag">${stage}</span><span className=${"account-status-tag " + status.toLowerCase()}>${status}</span></div></div>
+          <div className="account-range-section">
+            <div className="account-range-track" role="img" aria-label=${"Drawdown " + money(drawdown) + " of MLL " + (mll > 0 ? money(mll) : "not set") + "; realized profit " + money(Math.max(0, stats.pnl)) + " of target " + (target > 0 ? money(target) : "not set")}>
+              <i className="account-range-loss" style=${{ width: lossWidth + "%" }}></i>
+              <i className="account-range-gain" style=${{ width: profitWidth + "%" }}></i>
+              <b className="account-range-start-marker"></b>
+            </div>
+            <div className="account-range-scale">
+              <div className="account-range-end account-range-loss-label"><strong>${mll > 0 ? money(mll) : "—"}</strong><span>MLL</span></div>
+              <div className="account-range-start-label">START</div>
+              <div className="account-range-end account-range-target-label"><strong>${target > 0 ? money(target) : "—"}</strong><span>TARGET</span></div>
+            </div>
+          </div>
+          <div className="account-range-divider"></div>
+          <div className="account-range-metrics">
+            <div className="account-range-metric"><strong>${money(drawdown)}</strong><span>DRAWDOWN</span></div>
+            <div className="account-range-metric account-range-balance"><strong>${money(balance)}</strong><span>BALANCE</span></div>
+            <div className="account-range-metric account-range-remaining"><strong>${target > 0 ? money(targetRemaining) : (mll > 0 ? money(mllRemaining) : "—")}</strong><span>REMAINING</span></div>
+          </div>
+          <div className="account-range-footnote"><span>${mll > 0 ? mllUse.toFixed(0) + "% of max loss limit used" : "Set an MLL limit to track downside"}</span><span>${target > 0 ? targetProgress.toFixed(0) + "% of profit target" : "Set a profit target to track upside"}</span></div>
+        </article>`;
+      })}
+      ${accountBreakdown.length ? null : html`<div className="empty-state small-empty"><strong>No accounts selected</strong><span>Select an account to view its limits and balance.</span></div>`}
+    </div>
+    <div className="account-health-note">Drawdown and balance use recorded realized trades. Live prop-firm MLL and broker balance feeds are not connected.</div>
+  </section>`;
+}
+
+function accountMetrics(account, trades) {
+  const pnl = trades.reduce((s, t) => s + n(t.pnl), 0);
+  const winners = trades.filter((t) => n(t.pnl) > 0);
+  const losers = trades.filter((t) => n(t.pnl) < 0);
+  const grossWin = winners.reduce((s, t) => s + n(t.pnl), 0);
+  const grossLoss = Math.abs(losers.reduce((s, t) => s + n(t.pnl), 0));
+  const days = {};
+  trades.forEach((t) => { days[t.date] = (days[t.date] || 0) + n(t.pnl); });
+  const activeDays = Object.values(days);
+  const positiveDays = activeDays.filter((v) => v > 0).length;
+  const bestDay = Math.max(0, ...activeDays);
+  const positiveTotal = activeDays.reduce((s, v) => s + Math.max(0, v), 0);
+  const riskValues = trades.map((t) => n(t.rMultiple)).filter((v) => Number.isFinite(v));
+  let equity = n(account?.startingBalance), peak = equity, maxDD = 0;
+  Object.keys(days).sort().forEach((day) => {
+    equity += days[day]; peak = Math.max(peak, equity); maxDD = Math.max(maxDD, peak - equity);
+  });
+  const todayPnl = trades.filter((t) => t.date === todayISO()).reduce((s, t) => s + n(t.pnl), 0);
+  return {
+    pnl, count: trades.length, winRate: trades.length ? winners.length / trades.length * 100 : 0,
+    profitFactor: grossLoss ? grossWin / grossLoss : grossWin ? Infinity : 0,
+    avgR: riskValues.length ? riskValues.reduce((s, v) => s + v, 0) / riskValues.length : 0,
+    avgWin: winners.length ? grossWin / winners.length : 0,
+    avgLoss: losers.length ? grossLoss / losers.length : 0,
+    consistency: activeDays.length ? positiveDays / activeDays.length * 100 : 0,
+    positiveDays, activeDays: activeDays.length, bestDayShare: positiveTotal ? bestDay / positiveTotal * 100 : 0,
+    bestDay, maxDD, maxDDPct: n(account?.startingBalance) ? maxDD / n(account.startingBalance) * 100 : 0,
+    todayPnl
+  };
+}
+
+function buildEquitySeries(accounts, trades) {
+  const start = accounts.reduce((s, a) => s + n(a.startingBalance), 0);
+  const byDay = {};
+  trades.forEach((t) => { byDay[t.date] = (byDay[t.date] || 0) + n(t.pnl); });
+  const dates = Object.keys(byDay).sort();
+  if (!dates.length) return [{ date: todayISO(), value: start }];
+  let running = start;
+  const series = [{ date: dates[0], value: start }];
+  dates.forEach((d) => { running += byDay[d]; series.push({ date: d, value: running }); });
+  return series;
+}
+
+function TradeModal({ trade, accounts, initialAccountId, onClose, onSave }) {
+  const [form, setForm] = useState(() => ({
+    accountId: trade?.accountId || initialAccountId || accounts[0]?.id || "",
+    symbol: trade?.symbol || "", market: trade?.market || "Futures", side: trade?.side || "Long",
+    date: trade?.date || todayISO(), pnl: trade?.pnl ?? "", riskAmount: trade?.riskAmount ?? "",
+    setup: trade?.setup || "", notes: trade?.notes || "",
+    marketBias: trade?.marketBias || "Neutral",
+    emotionState: trade?.emotionState || "calm",
+    positionSize: trade?.positionSize || ""
+  }));
+  const [media, setMedia] = useState(() => trade?.media || []);
+  const [previewImage, setPreviewImage] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [mediaError, setMediaError] = useState("");
+  const fileInputRef = useRef(null);
+  const newlyUploaded = useRef([]);
+  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+  const preview = n(form.pnl), risk = n(form.riskAmount), r = risk ? preview / risk : 0;
+  const uploadFile = async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const response = await fetch("/api/trade-media", { method: "POST", credentials: "same-origin", body: fd });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Image upload failed.");
+    return result;
+  };
+  const uploadSelected = async () => {
+    const uploaded = [];
+    for (const file of selectedFiles) {
+      const result = await uploadFile(file);
+      uploaded.push({ key: result.key, name: result.name, contentType: result.contentType, bytes: result.bytes, url: result.url });
+      newlyUploaded.current.push(result.key);
+    }
+    return uploaded;
+  };
+  const cleanupNewUploads = async () => {
+    await Promise.all(newlyUploaded.current.map((key) => fetch("/api/trade-media", {
+      method: "DELETE", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key })
+    }).catch(() => null)));
+    newlyUploaded.current = [];
+  };
+  const close = async () => { await cleanupNewUploads(); onClose(); };
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.accountId || !form.symbol.trim() || form.pnl === "") return;
+    setUploading(true); setMediaError("");
+    let uploaded = [];
+    try {
+      uploaded = await uploadSelected();
+      const item = {
+        id: trade?.id || uid(), accountId: form.accountId, symbol: form.symbol.trim(),
+        market: form.market, side: form.side, date: form.date, setup: form.setup.trim(),
+        marketBias: form.marketBias, emotionState: form.emotionState, positionSize: form.positionSize.trim(),
+        notes: form.notes, pnl: n(form.pnl), riskAmount: n(form.riskAmount),
+        rMultiple: n(form.riskAmount) > 0 ? n(form.pnl) / n(form.riskAmount) : 0,
+        media: [...media, ...uploaded]
+      };
+      const keptKeys = new Set(item.media.map((file) => file.key));
+      const removed = (trade?.media || []).filter((file) => file.key && !keptKeys.has(file.key));
+      newlyUploaded.current = [];
+      onSave(item);
+      removed.forEach((file) => fetch("/api/trade-media", {
+        method: "DELETE", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: file.key })
+      }).catch(() => null));
+    } catch (error) {
+      await cleanupNewUploads();
+      setMediaError(error.message || "Could not upload the selected image(s).");
+      setUploading(false);
+      return;
+    }
+  };
+  return html`<${Modal} title=${trade ? "Edit trade" : "Log a trade"} subtitle="Record the result, your risk and the chart evidence for this trade." onClose=${close} wide=${true}>
+    <form className="modal-form" onSubmit=${submit}>
+      <div className="form-grid three">
+        <${Field} label="Account"><select required value=${form.accountId} onChange=${(e) => set("accountId", e.target.value)}>${accounts.map((a) => html`<option value=${a.id}>${a.name}</option>`)}</select></${Field}>
+        <${Field} label="Instrument"><input required value=${form.symbol} onChange=${(e) => set("symbol", e.target.value.toUpperCase())} placeholder="e.g. NQ, EURUSD" /></${Field}>
+        <${Field} label="Market"><select value=${form.market} onChange=${(e) => set("market", e.target.value)}><option>Futures</option><option>Forex</option><option>Stocks</option><option>Crypto</option><option>Options</option></select></${Field}>
+        <${Field} label="Trade date"><input type="date" required value=${form.date} onChange=${(e) => set("date", e.target.value)} /></${Field}>
+        <${Field} label="Direction"><select value=${form.side} onChange=${(e) => set("side", e.target.value)}><option>Long</option><option>Short</option></select></${Field}>
+        <${Field} label="Setup"><input value=${form.setup} onChange=${(e) => set("setup", e.target.value)} placeholder="Playbook setup" /></${Field}>
+      </div>
+      <div className="form-grid three trade-context-grid">
+        <${Field} label="Market Bias"><select value=${form.marketBias} onChange=${(e) => set("marketBias", e.target.value)}><option>Bullish</option><option>Bearish</option><option>Neutral</option></select></${Field}>
+        <${Field} label="Emotion State"><select value=${form.emotionState} onChange=${(e) => set("emotionState", e.target.value)}><option value="calm">Calm</option><option value="focused">Focused</option><option value="confident">Confident</option><option value="anxious">Anxious</option><option value="frustrated">Frustrated</option><option value="discipline">Discipline</option></select></${Field}>
+        <${Field} label="Position Size" hint="Enter your actual size, e.g. 2 contracts, 3 micros or 1.5 lots."><input type="text" maxlength="60" value=${form.positionSize} onChange=${(e) => set("positionSize", e.target.value)} placeholder="e.g. 2 contracts or 1.5 lots" /></${Field}>
+      </div>
+      <div className="form-divider"><span>Trade result</span></div>
+      <div className="form-grid two">
+        <${Field} label="Net P&L ($)"><input required type="number" step="any" value=${form.pnl} onChange=${(e) => set("pnl", e.target.value)} placeholder="e.g. 250 or -120" /></${Field}>
+        <${Field} label="Risk amount ($, optional)"><input type="number" min="0" step="any" value=${form.riskAmount} onChange=${(e) => set("riskAmount", e.target.value)} placeholder="Planned dollar risk" /></${Field}>
+      </div>
+      <div className="pnl-preview">
+        <div><span>Net P&L</span><strong className=${pnlClass(preview)}>${signedMoney(preview)}</strong></div>
+        <div><span>Risk amount</span><strong>${money(risk)}</strong></div>
+        <div><span>R-multiple</span><strong className=${pnlClass(r)}>${r.toFixed(2)}R</strong></div>
+      </div>
+      <${Field} label="Trade notes"><textarea rows="3" value=${form.notes} onChange=${(e) => set("notes", e.target.value)} placeholder="Execution quality, emotions, lessons learned…" /></${Field}>
+      <div className="media-upload-block">
+        <div className="media-upload-head">
+          <div><strong>Trade media</strong><small>Attach chart screenshots in JPG, PNG, WEBP or GIF format (8 MB max each).</small></div>
+          <input ref=${fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden-input" onChange=${(e) => { setSelectedFiles((files) => [...files, ...Array.from(e.target.files || [])]); e.target.value = ""; setMediaError(""); }} />
+          <button type="button" className="btn btn-secondary" onClick=${() => fileInputRef.current?.click()}><${Icon} name="upload" size=${15} /> Add media</button>
+        </div>
+        <div className="media-attachment-grid">
+          ${media.map((file) => html`<div className="media-attachment" key=${file.key}>
+            ${file.url ? html`<button type="button" className="media-preview-trigger" onClick=${() => setPreviewImage(file)} title="Click to preview image"><img src=${file.url} alt=${file.name || "Trade attachment"} /><span>Click to preview</span></button>` : html`<div className="media-placeholder"><${Icon} name="upload" size=${18} /></div>`}
+            <div><span>${file.name || "Trade image"}</span><button type="button" onClick=${() => setMedia((items) => items.filter((item) => item.key !== file.key))}>Remove</button></div>
+          </div>`)}
+          ${selectedFiles.map((file, index) => html`<div className="media-pending" key=${file.name + file.size + index}><${Icon} name="upload" size=${16} /><span>${file.name}</span><button type="button" onClick=${() => setSelectedFiles((items) => items.filter((_, i) => i !== index))}>Remove</button></div>`)}
+        </div>
+        ${mediaError ? html`<small className="media-error">${mediaError}</small>` : null}
+        ${uploading ? html`<small className="media-uploading">Uploading media and saving trade…</small>` : null}
+      </div>
+      <div className="modal-actions"><button type="button" className="btn btn-ghost" onClick=${close} disabled=${uploading}>Cancel</button><button type="submit" className="btn btn-primary" disabled=${uploading}>${uploading ? "Saving…" : trade ? "Save changes" : "Add trade"}</button></div>
+    </form>
+    ${previewImage ? html`<${ImageLightbox} file=${previewImage} onClose=${() => setPreviewImage(null)} />` : null}
+  </${Modal}>`;
+}
+
+function AccountsModal({ accounts, onClose, onAdd, onUpdate, onDelete }) {
+  const emptyForm = () => ({ firm: "Apex", customFirm: "", accountType: "Futures", accountStage: "Eval", accountStatus: "Active", name: "", startingBalance: 50000, dailyLoss: 1000, maxDrawdown: 2500, profitTarget: 3000, consistencyCap: 30 });
+  const [form, setForm] = useState(emptyForm);
+  const [editingId, setEditingId] = useState(null);
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const startEdit = (account) => {
+    const knownFirms = ["Apex","FTMO","Topstep","TradeDay","My Funded Futures","Take Profit Trader","Alpha Capital","The5ers","Funding Pips","FundedNext"];
+    const isCustomFirm = !knownFirms.includes(account.firm);
+    setEditingId(account.id);
+    setForm({
+      ...emptyForm(), ...account,
+      firm: isCustomFirm ? "__custom__" : account.firm,
+      accountType: account.accountType || (account.firm === "FTMO" ? "Forex" : "Futures"),
+      accountStage: account.accountStage || "Eval",
+      accountStatus: account.accountStatus || "Active",
+      profitTarget: account.profitTarget ?? 0,
+      customFirm: isCustomFirm ? account.firm : ""
+    });
+  };
+  const cancelEdit = () => { setEditingId(null); setForm(emptyForm()); };
+  const submit = (e) => {
+    e.preventDefault();
+    const firmName = form.firm === "__custom__" ? form.customFirm.trim() : form.firm;
+    if (!form.name.trim() || !firmName) return;
+    const { customFirm, ...account } = form;
+    const saved = { ...account, firm: firmName, id: editingId || uid(), startingBalance: n(form.startingBalance), dailyLoss: n(form.dailyLoss), maxDrawdown: n(form.maxDrawdown), profitTarget: n(form.profitTarget), consistencyCap: n(form.consistencyCap) };
+    if (editingId) onUpdate(saved); else onAdd(saved);
+    cancelEdit();
+  };
+  const accountTypeOf = (a) => a.accountType || (a.firm === "FTMO" ? "Forex" : "Futures");
+  const stageOf = (a) => a.accountStage || "Eval";
+  const statusOf = (a) => a.accountStatus || "Active";
+  return html`<${Modal} title="Manage accounts" subtitle="Set each prop account's stage, status, market type and performance limits." onClose=${onClose} wide=${true}>
+    <div className="account-manage-list">
+      ${accounts.map((a) => html`<div className="account-manage-row"><div className="firm-mark">${a.firm.slice(0, 1)}</div><div className="account-manage-name"><strong>${a.name}</strong><span>${a.firm} · ${accountTypeOf(a)} · ${stageOf(a)} · ${money(a.startingBalance)} start</span><div className="account-tag-row"><span className="account-stage-tag">${stageOf(a)}</span><span className=${"account-status-tag " + statusOf(a).toLowerCase()}>${statusOf(a)}</span></div></div><div className="account-limits">Daily ${money(a.dailyLoss)} <i>·</i> MLL ${money(a.maxDrawdown)} <i>·</i> Target ${money(a.profitTarget)}</div><div className="account-row-actions"><button className="tiny-icon" onClick=${() => startEdit(a)} title="Edit account"><${Icon} name="edit" size=${14} /></button><button className="tiny-icon danger" onClick=${() => onDelete(a.id)} title="Delete account"><${Icon} name="trash" size=${14} /></button></div></div>`)}
+      ${accounts.length ? null : html`<div className="empty-state small-empty"><strong>No accounts yet</strong><span>Add your first prop firm account below.</span></div>`}
+    </div>
+    <div className="form-divider"><span>${editingId ? "Edit account" : "Add account"}</span></div>
+    <form className="modal-form" onSubmit=${submit}>
+      <div className="form-grid three">
+        <${Field} label="Prop firm"><select value=${form.firm} onChange=${(e) => set("firm", e.target.value)}>
+          <option value="Apex">Apex</option><option value="FTMO">FTMO</option><option value="Topstep">Topstep</option><option value="TradeDay">TradeDay</option><option value="My Funded Futures">My Funded Futures</option><option value="Take Profit Trader">Take Profit Trader</option><option value="Alpha Capital">Alpha Capital</option><option value="The5ers">The5ers</option><option value="Funding Pips">Funding Pips</option><option value="FundedNext">FundedNext</option><option value="__custom__">＋ Add another prop firm manually</option>
+        </select></${Field}>
+        <${Field} label="Account type"><select value=${form.accountType} onChange=${(e) => set("accountType", e.target.value)}><option value="Forex">Forex</option><option value="Futures">Futures</option><option value="Crypto">Crypto</option></select></${Field}>
+        <${Field} label="Account stage"><select value=${form.accountStage} onChange=${(e) => set("accountStage", e.target.value)}><option>Step 1</option><option>Step 2</option><option>Instant</option><option>Eval</option><option>Funded</option><option>Challenge</option></select></${Field}>
+        <${Field} label="Account status"><select value=${form.accountStatus} onChange=${(e) => set("accountStatus", e.target.value)}><option>Active</option><option>Failed</option><option>Pass</option></select></${Field}>
+        ${form.firm === "__custom__" ? html`<${Field} label="Custom prop firm name"><input required autoFocus value=${form.customFirm} onChange=${(e) => set("customFirm", e.target.value)} placeholder="Enter prop firm name" /></${Field}>` : null}
+        <${Field} label="Account name"><input required value=${form.name} onChange=${(e) => set("name", e.target.value)} placeholder="e.g. Apex 50K PA" /></${Field}>
+        <${Field} label="Starting balance ($)"><input type="number" min="0" value=${form.startingBalance} onChange=${(e) => set("startingBalance", e.target.value)} /></${Field}>
+        <${Field} label="Maximum daily loss ($)"><input type="number" min="0" value=${form.dailyLoss} onChange=${(e) => set("dailyLoss", e.target.value)} /></${Field}>
+        <${Field} label="Maximum drawdown / MLL ($)"><input type="number" min="0" value=${form.maxDrawdown} onChange=${(e) => set("maxDrawdown", e.target.value)} /></${Field}>
+        <${Field} label="Profit target ($)"><input type="number" min="0" value=${form.profitTarget} onChange=${(e) => set("profitTarget", e.target.value)} /></${Field}>
+        <${Field} label="Consistency cap (%)"><input type="number" min="1" max="100" value=${form.consistencyCap} onChange=${(e) => set("consistencyCap", e.target.value)} /></${Field}>
+      </div>
+      <div className="modal-actions">${editingId ? html`<button className="btn btn-ghost" type="button" onClick=${cancelEdit}>Cancel edit</button>` : null}<button className="btn btn-primary" type="submit"><${Icon} name=${editingId ? "edit" : "plus"} size=${15} /> ${editingId ? "Save account" : "Add account"}</button></div>
+    </form>
+  </${Modal}>`;
+}
+
+function PlaybookModal({ item, onClose, onSave }) {
+  const [form, setForm] = useState({
+    name: item?.name || "", market: item?.market || "Futures", bias: item?.bias || "Both",
+    entryRules: item?.entryRules || "", stopRule: item?.stopRule || "", targets: item?.targets || "", notes: item?.notes || ""
+  });
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const submit = (e) => { e.preventDefault(); if (!form.name.trim()) return; onSave({ ...form, id: item?.id || uid() }); };
+  return html`<${Modal} title=${item ? "Edit playbook setup" : "New playbook setup"} subtitle="Document repeatable rules before the next session." onClose=${onClose} wide=${true}>
+    <form className="modal-form" onSubmit=${submit}>
+      <div className="form-grid three">
+        <${Field} label="Setup name"><input required value=${form.name} onChange=${(e) => set("name", e.target.value)} placeholder="e.g. Opening range breakout" /></${Field}>
+        <${Field} label="Market"><select value=${form.market} onChange=${(e) => set("market", e.target.value)}><option>Futures</option><option>Forex</option><option>Stocks</option><option>Crypto</option><option>Options</option><option>Any</option></select></${Field}>
+        <${Field} label="Direction bias"><select value=${form.bias} onChange=${(e) => set("bias", e.target.value)}><option>Both</option><option>Long</option><option>Short</option></select></${Field}>
+      </div>
+      <${Field} label="Entry rules"><textarea required rows="3" value=${form.entryRules} onChange=${(e) => set("entryRules", e.target.value)} placeholder="What must happen before you enter?" /></${Field}>
+      <div className="form-grid two">
+        <${Field} label="Stop-loss rules"><textarea rows="3" value=${form.stopRule} onChange=${(e) => set("stopRule", e.target.value)} placeholder="Invalidation level and risk rules…" /></${Field}>
+        <${Field} label="Targets & trade management"><textarea rows="3" value=${form.targets} onChange=${(e) => set("targets", e.target.value)} placeholder="Profit targets, scaling and trailing…" /></${Field}>
+      </div>
+      <${Field} label="Notes"><textarea rows="2" value=${form.notes} onChange=${(e) => set("notes", e.target.value)} placeholder="Time of day, conditions, avoidances…" /></${Field}>
+      <div className="modal-actions"><button type="button" className="btn btn-ghost" onClick=${onClose}>Cancel</button><button type="submit" className="btn btn-primary">Save setup</button></div>
+    </form>
+  </${Modal}>`;
+}
+
+function Overview({ accounts, trades, metrics, series, accountBreakdown, showAccountPerformance, onNewTrade, onEdit, onDelete, onManage }) {
+  const recent = [...trades].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+  return html`<div className="page-stack">
+    <${SectionHeading} eyebrow="PORTFOLIO SNAPSHOT" title="Overview" description="Your trading performance, consolidated across selected accounts." action=${html`<button className="btn btn-primary" onClick=${onNewTrade}><${Icon} name="plus" size=${15} /> Log trade</button>`} />
+    <div className="metrics-grid overview-metrics-grid">
+      <${MetricCard} label="Net realized P&L" value=${signedMoney(metrics.pnl)} detail=${trades.length + " closed trades"} tone=${metrics.pnl >= 0 ? "green" : "red"} icon="trend" />
+      <${MetricCard} label="Win rate" value=${metrics.winRate.toFixed(1) + "%"} detail=${metrics.wins + " wins · " + metrics.losses + " losses"} tone="blue" icon="analytics" />
+      <${MetricCard} label="Profit factor" value=${metrics.profitFactor === Infinity ? "∞" : metrics.profitFactor.toFixed(2)} detail="Gross profit ÷ gross loss" tone="normal" icon="shield" />
+      <${MetricCard} label="Avg. R-multiple" value=${metrics.avgR.toFixed(2) + "R"} detail="Average reward relative to risk" tone=${metrics.avgR >= 0 ? "green" : "red"} icon="trend" />
+      <${MetricCard} label="Consistency score" value=${metrics.consistency.toFixed(0) + "%"} detail=${metrics.positiveDays + " positive / " + metrics.activeDays + " active days"} tone=${metrics.consistency >= 50 ? "green" : "normal"} icon="analytics" />
+      <${MetricCard} label="Max drawdown" value=${money(metrics.maxDD)} detail=${(accounts.reduce((sum, account) => sum + n(account.startingBalance), 0) ? (metrics.maxDD / accounts.reduce((sum, account) => sum + n(account.startingBalance), 0) * 100).toFixed(2) + "% of starting balance" : "Peak-to-trough realized equity")} tone="red" icon="shield" />
+    </div>
+    <div className=${"content-grid overview-grid " + (showAccountPerformance ? "" : "single-account-overview")}>
+      <section className="panel chart-panel">
+        <div className="panel-head"><div><div className="eyebrow">ACCOUNT GROWTH</div><h3>${showAccountPerformance ? "Combined equity curve" : "Account equity curve"}</h3></div><span className="panel-chip">Realized · ${trades.length} trades</span></div>
+        <${EquityChart} series=${series} />
+      </section>
+      ${showAccountPerformance ? html`<section className="panel performance-panel">
+        <div className="panel-head"><div><div className="eyebrow">BY ACCOUNT</div><h3>Account performance</h3></div><button className="text-button" onClick=${onManage}>Manage <${Icon} name="chevron" size=${13} /></button></div>
+        <div className="account-performance-list">
+          ${accountBreakdown.map(({ account, stats }) => html`<div className="account-performance-row">
+            <div className="firm-mark">${account.firm.slice(0, 1)}</div>
+            <div className="account-performance-main"><strong>${account.name}</strong><span>${stats.count} trades · ${stats.winRate.toFixed(0)}% win rate</span><div className="mini-track"><i className=${stats.pnl >= 0 ? "bar-green" : "bar-red"} style=${{ width: Math.min(100, Math.max(5, Math.abs(stats.pnl) / Math.max(1, ...accountBreakdown.map((x) => Math.abs(x.stats.pnl))) * 100)) + "%" }} /></div></div>
+            <strong className=${"account-pnl " + pnlClass(stats.pnl)}>${signedMoney(stats.pnl)}</strong>
+          </div>`)}
+          ${accountBreakdown.length ? null : html`<div className="empty-state small-empty"><strong>No accounts</strong><span>Add an account to start tracking.</span></div>`}
+        </div>
+      </section>` : null}
+      ${!showAccountPerformance ? html`<div className="overview-account-health"><${AccountHealthStrip} accountBreakdown=${accountBreakdown} /></div>` : null}
+    </div>
+    <section className="panel">
+      <div className="panel-head"><div><div className="eyebrow">LATEST ACTIVITY</div><h3>Recent trades</h3></div><span className="panel-chip">${trades.length} total records</span></div>
+      <${TradeTable} trades=${recent} accounts=${accounts} onEdit=${onEdit} onDelete=${onDelete} compact=${true} />
+    </section>
+  </div>`;
+}
+
+function TradeLogs({ trades, accounts, accountBreakdown, onNew, onEdit, onDelete }) {
+  const [search, setSearch] = useState("");
+  const [result, setResult] = useState("All");
+  const [market, setMarket] = useState("All");
+  const visible = trades.filter((t) => {
+    const q = search.toLowerCase();
+    const matches = !q || [t.symbol, t.setup, t.notes, t.market].join(" ").toLowerCase().includes(q);
+    return matches && (result === "All" || (result === "Winners" && n(t.pnl) > 0) || (result === "Losers" && n(t.pnl) < 0)) && (market === "All" || t.market === market);
+  });
+  const sorted = [...visible].sort((a, b) => b.date.localeCompare(a.date));
+  return html`<div className="page-stack">
+    <${SectionHeading} eyebrow="EXECUTION HISTORY" title="Trade logs" description="Review every closed position and keep your execution data clean." action=${html`<button className="btn btn-primary" onClick=${onNew}><${Icon} name="plus" size=${15} /> Add trade</button>`} />
+    <section className="panel">
+      <div className="filter-bar">
+        <div className="search-box"><${Icon} name="search" size=${16} /><input placeholder="Search symbol, setup or notes…" value=${search} onChange=${(e) => setSearch(e.target.value)} /></div>
+        <select value=${market} onChange=${(e) => setMarket(e.target.value)}><option>All</option><option>Futures</option><option>Forex</option><option>Stocks</option><option>Crypto</option><option>Options</option></select>
+        <select value=${result} onChange=${(e) => setResult(e.target.value)}><option>All</option><option>Winners</option><option>Losers</option></select>
+        <span className="filter-count">${sorted.length} / ${trades.length} trades</span>
+      </div>
+      <${TradeTable} trades=${sorted} accounts=${accounts} onEdit=${onEdit} onDelete=${onDelete} />
+    </section>
+    <${TradePnlChart} trades=${sorted} />
+    <div className="helper-note"><${Icon} name="settings" size=${15} /><span>Record net P&L directly, add optional dollar risk, and attach chart screenshots to keep execution evidence with each trade.</span></div>
+  </div>`;
+}
+
+function CalendarPage({ trades, accounts }) {
+  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const year = month.getFullYear(), m = month.getMonth();
+  const firstDay = new Date(year, m, 1).getDay();
+  const daysInMonth = new Date(year, m + 1, 0).getDate();
+  const byDay = {};
+  trades.forEach((t) => { byDay[t.date] = (byDay[t.date] || 0) + n(t.pnl); });
+  const days = Array.from({ length: Math.ceil((firstDay + daysInMonth) / 7) * 7 }, (_, i) => new Date(year, m, i - firstDay + 1));
+  const monthTrades = trades.filter((t) => t.date.startsWith(year + "-" + String(m + 1).padStart(2, "0")));
+  const monthPnl = monthTrades.reduce((s, t) => s + n(t.pnl), 0);
+  const greenDays = Object.keys(byDay).filter((d) => d.startsWith(year + "-" + String(m + 1).padStart(2, "0")) && byDay[d] > 0).length;
+  const redDays = Object.keys(byDay).filter((d) => d.startsWith(year + "-" + String(m + 1).padStart(2, "0")) && byDay[d] < 0).length;
+  const dailyMax = Math.max(1, ...Object.values(byDay).map(Math.abs));
+  const changeMonth = (step) => setMonth(new Date(year, m + step, 1));
+  const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a]));
+  const [selectedDay, setSelectedDay] = useState(todayISO());
+  const selectedTrades = trades.filter((t) => t.date === selectedDay).sort((a, b) => b.pnl - a.pnl);
+  const ddSeries = (() => {
+    const daily = {};
+    trades.forEach((t) => { daily[t.date] = (daily[t.date] || 0) + n(t.pnl); });
+    const dates = Object.keys(daily).sort(); let eq = accounts.reduce((s, a) => s + n(a.startingBalance), 0), peak = eq;
+    return dates.map((d) => { eq += daily[d]; peak = Math.max(peak, eq); return { date: d, dd: peak - eq }; });
+  })();
+  const maxDd = Math.max(0, ...ddSeries.map((x) => x.dd));
+  return html`<div className="page-stack">
+    <${SectionHeading} eyebrow="DAILY PERFORMANCE" title="Calendar & P&L" description="A day-by-day view of realized results and portfolio drawdown." />
+    <div className="metrics-grid three-metrics">
+      <${MetricCard} label="Month-to-date P&L" value=${signedMoney(monthPnl)} detail=${monthTrades.length + " closed trades"} tone=${monthPnl >= 0 ? "green" : "red"} icon="calendar" />
+      <${MetricCard} label="Green days" value=${String(greenDays)} detail=${redDays + " red days this month"} tone="green" icon="trend" />
+      <${MetricCard} label="Max observed drawdown" value=${money(maxDd)} detail="Peak-to-trough realized equity" tone="red" icon="shield" />
+    </div>
+    <div className="content-grid calendar-grid">
+      <section className="panel calendar-panel">
+        <div className="calendar-toolbar"><div><div className="eyebrow">MONTHLY HEATMAP</div><h3>${month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</h3></div><div className="calendar-nav"><button className="icon-button" onClick=${() => changeMonth(-1)}><${Icon} name="left" size=${16} /></button><button className="icon-button" onClick=${() => changeMonth(1)}><${Icon} name="right" size=${16} /></button></div></div>
+        <div className="calendar-grid-days">${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d) => html`<div className="weekday">${d}</div>`)}
+          ${days.map((d) => {
+            const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+            const inMonth = d.getMonth() === m;
+            const value = byDay[iso] || 0;
+            const has = Object.prototype.hasOwnProperty.call(byDay, iso);
+            const alpha = has ? Math.min(.34, .09 + Math.abs(value) / dailyMax * .25) : 0;
+            return html`<button className=${"calendar-day " + (!inMonth ? "outside " : "") + (selectedDay === iso ? "selected " : "") + (has ? (value >= 0 ? "day-profit" : "day-loss") : "")} style=${has ? { background: value >= 0 ? "rgba(102,255,153," + alpha + ")" : "rgba(255,77,77," + alpha + ")" } : {}} onClick=${() => setSelectedDay(iso)}>
+              <span className="day-number">${d.getDate()}</span>${has ? html`<strong className=${pnlClass(value)}>${value > 0 ? "+" : ""}${Math.round(value).toLocaleString("en-US")}</strong><i>${Math.abs(value) > 1000 ? "●●●" : Math.abs(value) > 300 ? "●●" : "●"}</i>` : html`<span className="no-trade">—</span>`}
+            </button>`;
+          })}
+        </div>
+        <div className="calendar-legend"><span><i className="legend-dot profit-dot"></i> Profit day</span><span><i className="legend-dot loss-dot"></i> Loss day</span><span><i className="legend-dot no-dot"></i> No trade</span></div>
+      </section>
+      <section className="panel day-detail-panel">
+        <div className="panel-head"><div><div className="eyebrow">DAY DETAIL</div><h3>${fullDate(selectedDay)}</h3></div><span className="panel-chip">${selectedTrades.length} trades</span></div>
+        <div className="day-pnl-hero"><span>Daily realized P&L</span><strong className=${pnlClass(selectedTrades.reduce((s, t) => s + n(t.pnl), 0))}>${signedMoney(selectedTrades.reduce((s, t) => s + n(t.pnl), 0))}</strong></div>
+        <div className="day-trade-list">
+          ${selectedTrades.length ? selectedTrades.map((t) => html`<div className="day-trade"><div><strong>${t.symbol}</strong><span>${accountMap[t.accountId]?.firm || "Account"} · ${t.side}</span></div><strong className=${pnlClass(t.pnl)}>${signedMoney(t.pnl)}</strong></div>`) : html`<div className="empty-state"><div className="empty-icon"><${Icon} name="calendar" size=${21} /></div><strong>No trades on this day</strong><span>Select a highlighted date to inspect its trades.</span></div>`}
+        </div>
+        <div className="drawdown-summary"><div><span>Current max drawdown</span><strong className="negative">${money(maxDd)}</strong></div><span>Calculated from realized daily equity peaks.</span></div>
+      </section>
+    </div>
+  </div>`;
+}
+
+function AnalyticsPage({ accounts, trades, metrics, accountBreakdown }) {
+  const daily = {};
+  trades.forEach((t) => { daily[t.date] = (daily[t.date] || 0) + n(t.pnl); });
+  const dailyEntries = Object.entries(daily).sort((a, b) => a[0].localeCompare(b[0]));
+  const best = dailyEntries.reduce((m, x) => Math.max(m, x[1]), 0);
+  const worst = dailyEntries.reduce((m, x) => Math.min(m, x[1]), 0);
+  const maxAbs = Math.max(1, ...accountBreakdown.map((x) => Math.abs(x.stats.pnl)));
+  const starting = accounts.reduce((s, a) => s + n(a.startingBalance), 0);
+  const dailyLossLimit = accounts.reduce((s, a) => s + n(a.dailyLoss), 0);
+  const todayPnl = trades.filter((t) => t.date === todayISO()).reduce((s, t) => s + n(t.pnl), 0);
+  const todayUsage = dailyLossLimit ? Math.max(0, -todayPnl) / dailyLossLimit * 100 : 0;
+  const cap = accounts.length ? Math.min(...accounts.map((a) => n(a.consistencyCap) || 100)) : 30;
+  return html`<div className="page-stack">
+    <${SectionHeading} eyebrow="EDGE & RISK" title="Analytics" description="Measure expectancy, consistency and drawdown discipline across your portfolio." />
+    <div className="metrics-grid">
+      <${MetricCard} label="Average win" value=${money(metrics.avgWin)} detail="Mean P&L on winning trades" tone="green" icon="trend" />
+      <${MetricCard} label="Average loss" value=${money(metrics.avgLoss)} detail="Mean absolute loss" tone="red" icon="shield" />
+      <${MetricCard} label="Positive-day consistency" value=${metrics.consistency.toFixed(1) + "%"} detail=${metrics.positiveDays + " green / " + metrics.activeDays + " active days"} tone="blue" icon="calendar" />
+      <${MetricCard} label="Expectancy" value=${signedMoney(metrics.count ? metrics.pnl / metrics.count : 0)} detail="Average P&L per trade" tone=${metrics.pnl >= 0 ? "green" : "red"} icon="analytics" />
+    </div>
+    <div className="content-grid analytics-grid">
+      <section className="panel">
+        <div className="panel-head"><div><div className="eyebrow">ACCOUNT RANKING</div><h3>Performance by account</h3></div><span className="panel-chip">Net P&L</span></div>
+        <div className="rank-list">${accountBreakdown.map(({ account, stats }) => html`<div className="rank-row">
+          <div className="rank-name"><div className="firm-mark">${account.firm.slice(0, 1)}</div><div><strong>${account.name}</strong><span>${stats.count} trades · PF ${stats.profitFactor === Infinity ? "∞" : stats.profitFactor.toFixed(2)}</span></div></div>
+          <div className="rank-bar-wrap"><div className="rank-bar"><i className=${stats.pnl >= 0 ? "bar-green" : "bar-red"} style=${{ width: Math.max(3, Math.abs(stats.pnl) / maxAbs * 100) + "%" }} /></div><strong className=${"mono-cell " + pnlClass(stats.pnl)}>${signedMoney(stats.pnl)}</strong></div>
+        </div>`)}</div>
+      </section>
+      <section className="panel risk-panel">
+        <div className="panel-head"><div><div className="eyebrow">RISK GOVERNANCE</div><h3>Prop firm guardrails</h3></div><span className="status-tag">Monitoring</span></div>
+        <div className="risk-meter-block"><div className="risk-meter-label"><span>Daily loss usage</span><strong>${todayUsage.toFixed(1)}%</strong></div><div className="risk-meter"><i className=${todayUsage >= 100 ? "meter-red" : todayUsage >= 70 ? "meter-amber" : "meter-green"} style=${{ width: Math.min(100, todayUsage) + "%" }} /></div><small>${money(Math.max(0, -todayPnl))} used of ${money(dailyLossLimit)} combined daily limits</small></div>
+        <div className="risk-meter-block"><div className="risk-meter-label"><span>Best-day concentration</span><strong>${metrics.bestDayShare.toFixed(1)}%</strong></div><div className="risk-meter"><i className=${metrics.bestDayShare > cap ? "meter-amber" : "meter-green"} style=${{ width: Math.min(100, metrics.bestDayShare) + "%" }} /></div><small>Lowest configured consistency cap: ${cap}%</small></div>
+        <div className="risk-stats-row"><div><span>Best trading day</span><strong className="positive">${signedMoney(best)}</strong></div><div><span>Worst trading day</span><strong className="negative">${signedMoney(worst)}</strong></div></div>
+      </section>
+    </div>
+    <section className="panel">
+      <div className="panel-head"><div><div className="eyebrow">ACCOUNT HEALTH</div><h3>Drawdown & consistency monitor</h3></div><span className="panel-chip">Per-account limits</span></div>
+      <div className="health-table-wrap"><table className="data-table health-table"><thead><tr><th>Account</th><th>Net P&L</th><th>Max observed DD</th><th>DD limit</th><th>Consistency</th><th>Daily P&L</th><th>Status</th></tr></thead><tbody>
+        ${accountBreakdown.map(({ account, stats }) => {
+          const ddUse = account.maxDrawdown ? stats.maxDD / account.maxDrawdown * 100 : 0;
+          const dailyUse = account.dailyLoss ? Math.max(0, -stats.todayPnl) / account.dailyLoss * 100 : 0;
+          const concentration = stats.bestDayShare;
+          const breached = ddUse >= 100 || dailyUse >= 100;
+          const watch = ddUse >= 70 || dailyUse >= 70 || concentration > n(account.consistencyCap);
+          return html`<tr><td><strong>${account.name}</strong><small>${account.firm}</small></td><td className=${"mono-cell " + pnlClass(stats.pnl)}>${signedMoney(stats.pnl)}</td><td className="mono-cell">${money(stats.maxDD)}</td><td><div className="limit-cell"><span>${ddUse.toFixed(0)}%</span><div className="limit-track"><i style=${{ width: Math.min(100, ddUse) + "%" }} className=${ddUse >= 100 ? "meter-red" : ddUse >= 70 ? "meter-amber" : "meter-green"} /></div></div></td><td className="mono-cell">${concentration.toFixed(0)}% / ${account.consistencyCap}%</td><td className=${"mono-cell " + pnlClass(stats.todayPnl)}>${signedMoney(stats.todayPnl)}</td><td><span className=${"health-status " + (breached ? "breach" : watch ? "watch" : "healthy")}>${breached ? "Limit hit" : watch ? "Watch" : "On track"}</span></td></tr>`;
+        })}
+      </tbody></table></div>
+      <div className="helper-note"><${Icon} name="shield" size=${15} /><span>Risk checks use recorded, realized trades only. Intraday unrealized drawdown and each firm's live rule engine are not connected.</span></div>
+    </section>
+  </div>`;
+}
+
+function PlaybookPage({ items, onNew, onEdit, onDelete }) {
+  return html`<div className="page-stack">
+    <${SectionHeading} eyebrow="PROCESS LIBRARY" title="Playbook" description="Turn your best setups into repeatable entry, stop and target rules." action=${html`<button className="btn btn-primary" onClick=${onNew}><${Icon} name="plus" size=${15} /> New setup</button>`} />
+    <div className="playbook-grid">
+      ${items.map((item, i) => html`<article className="panel playbook-card">
+        <div className="playbook-card-top"><span className="playbook-index">0${i + 1}</span><div className="playbook-actions"><button className="tiny-icon" onClick=${() => onEdit(item)} title="Edit"><${Icon} name="edit" size=${14} /></button><button className="tiny-icon danger" onClick=${() => onDelete(item.id)} title="Delete"><${Icon} name="trash" size=${14} /></button></div></div>
+        <h3>${item.name}</h3><div className="playbook-tags"><span>${item.market}</span><span>${item.bias}</span></div>
+        <div className="playbook-rule"><label>ENTRY CONDITIONS</label><p>${item.entryRules || "No entry rules added yet."}</p></div>
+        <div className="rule-pair"><div className="playbook-rule"><label>STOP-LOSS</label><p>${item.stopRule || "Not defined."}</p></div><div className="playbook-rule"><label>TARGETS</label><p>${item.targets || "Not defined."}</p></div></div>
+        ${item.notes ? html`<div className="playbook-notes">${item.notes}</div>` : null}
+      </article>`)}
+      <button className="add-playbook-card" onClick=${onNew}><span><${Icon} name="plus" size=${22} /></span><strong>Add a new setup</strong><small>Define a repeatable edge</small></button>
+    </div>
+    ${items.length ? null : html`<section className="panel empty-state"><div className="empty-icon"><${Icon} name="playbook" size=${21} /></div><strong>Your playbook is empty</strong><span>Add a setup with entry, stop-loss and target rules.</span><button className="btn btn-primary" onClick=${onNew}>Create first setup</button></section>`}
+  </div>`;
+}
+
+function DataCenter({ data, syncStatus, onExportCsv, onExportJson, onImport, onClear, onReset }) {
+  const inputRef = useRef(null);
+  return html`<div className="page-stack">
+    <${SectionHeading} eyebrow="BACKUPS & PREFERENCES" title="Data center" description="Keep a portable backup of your trading journal and manage stored records." />
+    <div className="metrics-grid three-metrics">
+      <${MetricCard} label="Accounts" value=${String(data.accounts.length)} detail="Connected prop firm accounts" tone="blue" icon="shield" />
+      <${MetricCard} label="Trade records" value=${String(data.trades.length)} detail="Closed positions stored" tone="green" icon="trades" />
+      <${MetricCard} label="Playbook setups" value=${String(data.playbook.length)} detail="Documented strategies" tone="normal" icon="playbook" />
+    </div>
+    <section className="panel data-card">
+      <div className="data-card-icon"><${Icon} name="download" size=${20} /></div><div className="data-card-copy"><h3>Export journal data</h3><p>Download a CSV of your trade history or a complete JSON backup containing accounts, trades and playbook setups.</p><div className="data-actions"><button className="btn btn-primary" onClick=${onExportCsv}><${Icon} name="download" size=${15} /> Export trades CSV</button><button className="btn btn-secondary" onClick=${onExportJson}><${Icon} name="download" size=${15} /> Full JSON backup</button></div></div>
+    </section>
+    <section className="panel data-card">
+      <div className="data-card-icon blue-icon"><${Icon} name="upload" size=${20} /></div><div className="data-card-copy"><h3>Restore from backup</h3><p>Import a previously exported Trading Journal JSON file. The imported dataset replaces the currently loaded journal.</p><input ref=${inputRef} type="file" accept=".json,application/json" className="hidden-input" onChange=${onImport} /><button className="btn btn-secondary" onClick=${() => inputRef.current?.click()}><${Icon} name="upload" size=${15} /> Import JSON backup</button></div>
+    </section>
+    <section className="panel data-card">
+      <div className="data-card-icon"><${Icon} name="shield" size=${20} /></div><div className="data-card-copy"><h3>Storage & autosave</h3><p>Changes are saved in this browser and synced to your private project database when you are signed in.</p><div className="storage-status"><span className="online-dot"></span><strong>${syncStatus}</strong><span>·</span><span>${data.trades.length + data.accounts.length + data.playbook.length} records tracked</span></div></div>
+    </section>
+    <section className="panel danger-zone">
+      <div><h3>Reset journal</h3><p>Clear trade history or restore the sample workspace. Export a backup first if you need to keep your current records.</p></div>
+      <div className="data-actions"><button className="btn btn-danger" onClick=${onClear}>Clear all trades</button><button className="btn btn-ghost" onClick=${onReset}>Restore demo data</button></div>
+    </section>
+    <div className="helper-note"><${Icon} name="shield" size=${15} /><span>CSV exports contain trade rows only. JSON backups include account settings and playbook content. Data is not connected to a broker or prop firm's account feed.</span></div>
+  </div>`;
+}
+
+function App() {
+  const [data, setData] = useState(() => clone(DEMO_DATA));
+  const [page, setPage] = useState("overview");
+  const [accountFilter, setAccountFilter] = useState("all");
+  const [modal, setModal] = useState(null);
+  const [syncStatus, setSyncStatus] = useState("Loading saved journal…");
+  const [ready, setReady] = useState(false);
+  const [notice, setNotice] = useState("");
+  const noticeTimer = useRef(null);
+
+  const toast = (message) => {
+    setNotice(message);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(""), 2800);
+  };
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      let loaded = null;
+      try {
+        const response = await fetch("/api/journal", { method: "GET", credentials: "same-origin" });
+        if (response.ok) {
+          const result = await response.json();
+          loaded = result.payload;
+        }
+      } catch (e) {}
+      if (!loaded) {
+        try {
+          const local = localStorage.getItem(STORAGE_KEY);
+          if (local) loaded = JSON.parse(local);
+        } catch (e) {}
+      }
+      if (!loaded || !Array.isArray(loaded.accounts) || !Array.isArray(loaded.trades) || !Array.isArray(loaded.playbook)) loaded = clone(DEMO_DATA);
+      if (alive) {
+        setData(loaded);
+        setReady(true);
+        setSyncStatus("Journal loaded");
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
+    setSyncStatus("Saving changes…");
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/journal", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ payload: data })
+        });
+        setSyncStatus(response.ok ? "Cloud synced" : "Saved on this device");
+      } catch (e) {
+        setSyncStatus("Saved on this device");
+      }
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [data, ready]);
+
+  const visibleAccounts = useMemo(() => accountFilter === "all" ? data.accounts : data.accounts.filter((a) => a.id === accountFilter), [data.accounts, accountFilter]);
+  const visibleTrades = useMemo(() => data.trades.filter((t) => visibleAccounts.some((a) => a.id === t.accountId)), [data.trades, visibleAccounts]);
+  const metrics = useMemo(() => {
+    const pnl = visibleTrades.reduce((s, t) => s + n(t.pnl), 0);
+    const wins = visibleTrades.filter((t) => n(t.pnl) > 0), losses = visibleTrades.filter((t) => n(t.pnl) < 0);
+    const grossWin = wins.reduce((s, t) => s + n(t.pnl), 0);
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + n(t.pnl), 0));
+    const days = {};
+    visibleTrades.forEach((t) => { days[t.date] = (days[t.date] || 0) + n(t.pnl); });
+    const dayValues = Object.values(days), rValues = visibleTrades.map((t) => n(t.rMultiple));
+    const positiveTotal = dayValues.reduce((s, v) => s + Math.max(0, v), 0);
+    const bestDay = Math.max(0, ...dayValues);
+    let eq = visibleAccounts.reduce((s, a) => s + n(a.startingBalance), 0), peak = eq, maxDD = 0;
+    Object.keys(days).sort().forEach((d) => { eq += days[d]; peak = Math.max(peak, eq); maxDD = Math.max(maxDD, peak - eq); });
+    return {
+      pnl, count: visibleTrades.length, wins: wins.length, losses: losses.length,
+      winRate: visibleTrades.length ? wins.length / visibleTrades.length * 100 : 0,
+      profitFactor: grossLoss ? grossWin / grossLoss : grossWin ? Infinity : 0,
+      avgR: rValues.length ? rValues.reduce((s, v) => s + v, 0) / rValues.length : 0,
+      avgWin: wins.length ? grossWin / wins.length : 0, avgLoss: losses.length ? grossLoss / losses.length : 0,
+      consistency: dayValues.length ? dayValues.filter((v) => v > 0).length / dayValues.length * 100 : 0,
+      positiveDays: dayValues.filter((v) => v > 0).length, activeDays: dayValues.length,
+      bestDayShare: positiveTotal ? bestDay / positiveTotal * 100 : 0, maxDD
+    };
+  }, [visibleAccounts, visibleTrades]);
+  const series = useMemo(() => buildEquitySeries(visibleAccounts, visibleTrades), [visibleAccounts, visibleTrades]);
+  const accountBreakdown = useMemo(() => visibleAccounts.map((account) => ({ account, stats: accountMetrics(account, data.trades.filter((t) => t.accountId === account.id)) })), [visibleAccounts, data.trades]);
+
+  const deleteStoredMedia = (trades) => {
+    const keys = trades.flatMap((trade) => (trade.media || []).map((file) => file.key).filter(Boolean));
+    keys.forEach((key) => fetch("/api/trade-media", {
+      method: "DELETE", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key })
+    }).catch(() => null));
+  };
+  const addTrade = (trade) => {
+    setData((d) => ({ ...d, trades: [...d.trades.filter((t) => t.id !== trade.id), trade] }));
+    setModal(null); toast("Trade saved");
+  };
+  const deleteTrade = (id) => {
+    if (!window.confirm("Delete this trade record?")) return;
+    const removed = data.trades.find((trade) => trade.id === id);
+    if (removed) deleteStoredMedia([removed]);
+    setData((d) => ({ ...d, trades: d.trades.filter((t) => t.id !== id) }));
+    toast("Trade deleted");
+  };
+  const addAccount = (account) => {
+    setData((d) => ({ ...d, accounts: [...d.accounts, account] }));
+    toast("Account added");
+  };
+  const updateAccount = (account) => {
+    setData((d) => ({ ...d, accounts: d.accounts.map((item) => item.id === account.id ? account : item) }));
+    toast("Account updated");
+  };
+  const deleteAccount = (id) => {
+    const linkedTrades = data.trades.filter((t) => t.accountId === id);
+    const linked = linkedTrades.length;
+    if (!window.confirm("Delete this account and its " + linked + " linked trade(s)?")) return;
+    deleteStoredMedia(linkedTrades);
+    setData((d) => ({ ...d, accounts: d.accounts.filter((a) => a.id !== id), trades: d.trades.filter((t) => t.accountId !== id) }));
+    if (accountFilter === id) setAccountFilter("all");
+    toast("Account removed");
+  };
+  const savePlaybook = (item) => {
+    setData((d) => ({ ...d, playbook: [...d.playbook.filter((p) => p.id !== item.id), item] }));
+    setModal(null); toast("Playbook setup saved");
+  };
+  const deletePlaybook = (id) => {
+    if (!window.confirm("Delete this playbook setup?")) return;
+    setData((d) => ({ ...d, playbook: d.playbook.filter((p) => p.id !== id) }));
+    toast("Setup deleted");
+  };
+
+  const downloadFile = (filename, content, type) => {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  };
+  const exportCsv = () => {
+    const columns = ["date","account","firm","accountType","accountStage","accountStatus","startingBalance","profitTarget","symbol","market","side","marketBias","emotionState","positionSize","netPnl","riskAmount","rMultiple","setup","notes","mediaFiles"];
+    const rows = data.trades.map((t) => {
+      const account = data.accounts.find((a) => a.id === t.accountId);
+      return [t.date, account?.name || "", account?.firm || "", account?.accountType || "", account?.accountStage || "Eval", account?.accountStatus || "Active", account?.startingBalance || "", account?.profitTarget || "", t.symbol, t.market, t.side, t.marketBias || "Neutral", t.emotionState || "calm", t.positionSize || "full", t.pnl, t.riskAmount, t.rMultiple, t.setup, t.notes, (t.media || []).map((file) => file.name).join("; ")];
+    });
+    const csv = [columns, ...rows].map((row) => row.map((cell) => '"' + String(cell ?? "").replace(/"/g, '""') + '"').join(",")).join("\n");
+    downloadFile("trading-journal-trades-" + todayISO() + ".csv", csv, "text/csv;charset=utf-8");
+    toast("Trade CSV exported");
+  };
+  const exportJson = () => {
+    downloadFile("trading-journal-backup-" + todayISO() + ".json", JSON.stringify({ app: "Trading Journal", version: 1, exportedAt: new Date().toISOString(), data }, null, 2), "application/json");
+    toast("JSON backup exported");
+  };
+  const importJson = (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        const next = parsed.data || parsed;
+        if (!Array.isArray(next.accounts) || !Array.isArray(next.trades) || !Array.isArray(next.playbook)) throw new Error("Invalid backup");
+        if (!window.confirm("Replace your current journal with the imported backup?")) return;
+        deleteStoredMedia(data.trades);
+        setData(next); setAccountFilter("all"); toast("Backup imported");
+      } catch (err) { toast("Could not read that backup file"); }
+      e.target.value = "";
+    };
+    reader.readAsText(file);
+  };
+  const clearTrades = () => {
+    if (!window.confirm("Remove every trade from every account? This cannot be undone unless you exported a backup.")) return;
+    deleteStoredMedia(data.trades);
+    setData((d) => ({ ...d, trades: [] })); toast("Trade history cleared");
+  };
+  const resetDemo = () => {
+    if (!window.confirm("Restore the sample dashboard? This replaces current accounts, trades and playbook.")) return;
+    deleteStoredMedia(data.trades);
+    setData(clone(DEMO_DATA)); setAccountFilter("all"); toast("Sample data restored");
+  };
+
+  const nav = [
+    { id: "overview", label: "Overview", icon: "overview", group: "WORKSPACE" },
+    { id: "trades", label: "Trade logs", icon: "trades" },
+    { id: "calendar", label: "Calendar & P&L", icon: "calendar" },
+    { id: "analytics", label: "Analytics", icon: "analytics", group: "ANALYSIS" },
+    { id: "playbook", label: "Playbook", icon: "playbook" },
+    { id: "data", label: "Data center", icon: "data", group: "SYSTEM" }
+  ];
+  const pageTitle = nav.find((item) => item.id === page)?.label || "Overview";
+  const pageContent = (() => {
+    if (page === "overview") return html`<${Overview} accounts=${visibleAccounts} trades=${visibleTrades} metrics=${metrics} series=${series} accountBreakdown=${accountBreakdown} showAccountPerformance=${accountFilter === "all"} onNewTrade=${() => setModal({ type: "trade" })} onEdit=${(t) => setModal({ type: "trade", trade: t })} onDelete=${deleteTrade} onManage=${() => setModal({ type: "accounts" })} />`;
+    if (page === "trades") return html`<${TradeLogs} trades=${visibleTrades} accounts=${visibleAccounts} accountBreakdown=${accountBreakdown} onNew=${() => setModal({ type: "trade" })} onEdit=${(t) => setModal({ type: "trade", trade: t })} onDelete=${deleteTrade} />`;
+    if (page === "calendar") return html`<${CalendarPage} trades=${visibleTrades} accounts=${visibleAccounts} />`;
+    if (page === "analytics") return html`<${AnalyticsPage} accounts=${visibleAccounts} trades=${visibleTrades} metrics=${metrics} accountBreakdown=${accountBreakdown} />`;
+    if (page === "playbook") return html`<${PlaybookPage} items=${data.playbook} onNew=${() => setModal({ type: "playbook" })} onEdit=${(item) => setModal({ type: "playbook", item })} onDelete=${deletePlaybook} />`;
+    return html`<${DataCenter} data=${data} syncStatus=${syncStatus} onExportCsv=${exportCsv} onExportJson=${exportJson} onImport=${importJson} onClear=${clearTrades} onReset=${resetDemo} />`;
+  })();
+
+  return html`<div className="app-shell">
+    <aside className="sidebar">
+      <div className="brand"><div className="brand-mark"><img src="/brand-mark.svg?v=15" alt="" /></div><div><strong>TRADING<span>JOURNAL</span></strong><small>TRADING WORKSPACE</small></div></div>
+      <div className="sidebar-section">
+        ${nav.map((item, i) => html`${item.group ? html`<div className="nav-label">${item.group}</div>` : null}<button className=${"nav-item " + (page === item.id ? "active" : "")} onClick=${() => setPage(item.id)}><${Icon} name=${item.icon} size=${17} /><span>${item.label}</span>${page === item.id ? html`<i className="nav-active-dot"></i>` : null}</button>`)}
+      </div>
+      <div className="sidebar-bottom">
+        <div className="sidebar-account-card"><div className="sidebar-account-head"><span className="online-dot"></span><strong>${data.accounts.filter((account) => (account.accountStatus || "Active") === "Active").length} active accounts</strong></div><p>Portfolio tracking is enabled.</p><button onClick=${() => setModal({ type: "accounts" })}>Manage accounts <${Icon} name="chevron" size=${12} /></button></div>
+        <div className="profile-row"><div className="profile-avatar">TJ</div><div><strong>My Journal</strong><span>Private workspace</span></div><span className="profile-status"></span></div>
+      </div>
+    </aside>
+    <main className="main-area">
+      <header className="topbar">
+        <div className="topbar-left"><div className="breadcrumb">WORKSPACE <span>/</span> <strong>${pageTitle.toUpperCase()}</strong></div><div className="mobile-brand"><div className="brand-mark"><img src="/brand-mark.svg?v=15" alt="" /></div><strong>TRADING JOURNAL</strong></div></div>
+        <div className="topbar-actions">
+          <div className="sync-indicator"><span className="online-dot"></span><span>${syncStatus}</span></div>
+          <label className="account-select-wrap"><span>ACCOUNT</span><select value=${accountFilter} onChange=${(e) => setAccountFilter(e.target.value)}><option value="all">All accounts</option>${data.accounts.map((a) => html`<option value=${a.id}>${a.firm} · ${a.accountType || (a.firm === "FTMO" ? "Forex" : "Futures")} · ${a.accountStage || "Eval"} · ${a.name}</option>`)}</select></label>
+          <button className="btn btn-secondary manage-btn" onClick=${() => setModal({ type: "accounts" })}>Accounts <${Icon} name="settings" size=${14} /></button>
+        </div>
+      </header>
+      <div className="page-content">${pageContent}</div>
+      <footer className="app-footer"><span>TRADING JOURNAL <i>·</i> PRIVATE TRADING WORKSPACE</span><span>REALIZED DATA ONLY <i>·</i> NOT BROKER CONNECTED</span></footer>
+    </main>
+    ${modal?.type === "trade" ? html`<${TradeModal} trade=${modal.trade} accounts=${data.accounts} initialAccountId=${accountFilter === "all" ? data.accounts[0]?.id : accountFilter} onClose=${() => setModal(null)} onSave=${addTrade} />` : null}
+    ${modal?.type === "accounts" ? html`<${AccountsModal} accounts=${data.accounts} onClose=${() => setModal(null)} onAdd=${addAccount} onUpdate=${updateAccount} onDelete=${deleteAccount} />` : null}
+    ${modal?.type === "playbook" ? html`<${PlaybookModal} item=${modal.item} onClose=${() => setModal(null)} onSave=${savePlaybook} />` : null}
+    ${notice ? html`<div className="toast"><span className="toast-check">✓</span>${notice}</div>` : null}
+  </div>`;
+}
+
+createRoot(document.getElementById("root")).render(html`<${App} />`);

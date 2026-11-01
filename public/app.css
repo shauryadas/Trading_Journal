@@ -1,0 +1,2 @@
+/* Main dashboard styles are loaded as a standalone asset so the app remains dependency-light. */
+@import url("/dashboard.css");

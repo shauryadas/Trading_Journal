@@ -1,0 +1,339 @@
+/* Account progression and limits */
+.account-tag-row{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
+.account-stage-tag,.account-status-tag{display:inline-flex;align-items:center;border:1px solid #333;border-radius:4px;padding:3px 7px;font-size:10px;font-weight:600;line-height:1.2;color:rgba(255,255,255,.76);background:#111}
+.account-status-tag.active{color:#66ff99;border-color:rgba(102,255,153,.32);background:rgba(102,255,153,.09)}
+.account-status-tag.failed{color:#ff4d4d;border-color:rgba(255,77,77,.35);background:rgba(255,77,77,.09)}
+.account-status-tag.pass{color:#fff;border-color:#555;background:#202020}
+.account-row-actions{display:flex;align-items:center;gap:4px;flex:none}
+.account-health-list{display:flex;flex-direction:column;gap:10px;padding:0 16px 14px}
+.account-health-card{border:1px solid #292929;border-radius:8px;background:#090909;padding:13px 14px}
+.account-health-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.account-health-heading>div:first-child{display:flex;flex-direction:column;gap:4px;min-width:0}
+.account-health-heading strong{font-size:13px;color:#fff;font-weight:700}
+.account-health-heading>div:first-child span{font-size:10px;color:rgba(255,255,255,.5)}
+.account-health-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.account-health-metric{min-width:0;padding:11px 12px;background:#050505;border:1px solid #242424;border-radius:6px}
+.account-health-label{display:flex;justify-content:space-between;align-items:center;gap:8px;color:rgba(255,255,255,.58);font-size:10px}
+.account-health-label strong{font-size:11px;color:#fff;white-space:nowrap}
+.account-health-value{display:block;margin-top:7px;color:#fff;font-family:inherit;font-size:17px;font-weight:700;letter-spacing:-.025em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.account-health-value small{font-size:11px;color:rgba(255,255,255,.48);font-weight:500}
+.health-progress{height:6px;margin-top:10px;background:#252525;border-radius:99px;overflow:hidden}
+.health-progress i{display:block;height:100%;width:0;background:#66ff99;border-radius:99px;transition:none}
+.health-progress i.near-limit{background:#ffcf5b}
+.health-progress i.over-limit{background:#ff4d4d}
+.health-progress.balance-progress i{background:#66ff99;opacity:.6}
+.health-progress.target-progress i{background:#66ff99}
+.account-health-foot{display:block;margin-top:7px;color:rgba(255,255,255,.48);font-size:10px}
+.account-health-note{padding:0 17px 13px;color:rgba(255,255,255,.4);font-size:10px}
+@media(max-width:900px){.account-health-metrics{grid-template-columns:1fr}.account-health-heading{align-items:flex-start;flex-direction:column}.account-health-metric{padding:10px 11px}}
+@media(max-width:680px){.account-health-list{padding:0 10px 12px}.account-health-card{padding:10px}.account-health-heading strong{font-size:12px}}
+
+/* Readability pass — slightly larger type throughout the workspace */
+.nav-item{font-size:13px!important}
+.nav-label{font-size:10px!important}
+.sidebar-account-head{font-size:11px!important}
+.sidebar-account-card p,.sidebar-account-card button{font-size:11px!important}
+.profile-row strong{font-size:11px!important}
+.profile-row span{font-size:10px!important}
+.breadcrumb{font-size:10px!important}
+.sync-indicator{font-size:10px!important}
+.account-select-wrap{font-size:9px!important}
+.section-heading h1{font-size:27px!important}
+.section-heading p{font-size:12px!important}
+.eyebrow{font-size:10px!important}
+.btn{font-size:11px!important}
+.metric-top{font-size:11px!important}
+.metric-value{font-size:26px!important}
+.metric-detail{font-size:10px!important}
+.panel-head h3,.calendar-toolbar h3{font-size:14px!important}
+.panel-chip{font-size:9px!important}
+.chart-legend{font-size:10px!important}
+.chart-range,.chart-xlabels{font-size:9px!important}
+.data-table th{font-size:9px!important}
+.data-table td{font-size:11px!important}
+.symbol-cell strong{font-size:11px!important}
+.symbol-cell small{font-size:9px!important}
+.account-pill,.side-pill{font-size:10px!important}
+.filter-count{font-size:10px!important}
+.helper-note{font-size:11px!important}
+.field-label{font-size:11px!important}
+.field input,.field select,.field textarea{font-size:12px!important}
+.field small{font-size:10px!important}
+.modal-head h2{font-size:20px!important}
+.modal-head p{font-size:12px!important}
+.account-manage-name strong{font-size:13px!important}
+.account-manage-name span,.account-limits{font-size:10px!important}
+.toast{font-size:11px!important}
+.app-footer{font-size:9px!important}
+@media(max-width:680px){
+  .section-heading h1{font-size:24px!important}
+  .section-heading p{font-size:11px!important}
+  .metric-value{font-size:22px!important}
+  .nav-item{font-size:12px!important}
+  .account-manage-row{flex-wrap:wrap;align-items:flex-start}
+  .account-manage-name{flex-basis:calc(100% - 48px)}
+  .account-row-actions{margin-left:auto}
+  .account-health-heading{align-items:flex-start;flex-direction:column}
+}
+@media(max-width:390px){
+  .section-heading h1{font-size:22px!important}
+  .metric-value{font-size:19px!important}
+  .modal-head h2{font-size:18px!important}
+}
+
+/* Trading Journal brand system */
+.brand-mark{
+  width:38px!important;height:38px!important;flex:none!important;padding:0!important;
+  overflow:hidden!important;border:0!important;border-radius:11px!important;
+  background:transparent!important;box-shadow:0 0 18px rgba(102,255,153,.08)!important;
+}
+.brand-mark img{display:block;width:100%;height:100%;object-fit:contain}
+.brand{gap:12px!important}
+.brand strong{font-size:13px!important;letter-spacing:.1em!important}
+.brand strong span{margin-left:5px!important}
+.mobile-brand .brand-mark{width:30px!important;height:30px!important}
+.mobile-brand strong{font-size:11px!important;letter-spacing:.08em!important;color:#fff!important}
+.boot-mark{
+  width:50px!important;height:50px!important;padding:0!important;border:0!important;
+  border-radius:13px!important;background:transparent!important;overflow:hidden!important;
+}
+.boot-mark img{display:block;width:100%;height:100%;object-fit:contain}
+
+/* Overview account-level limits and P&L strip */
+.overview-account-health{grid-column:1/-1;min-width:0}
+.overview-grid.single-account-overview{grid-template-columns:minmax(0,1fr)!important}
+.overview-grid.single-account-overview .chart-panel{grid-column:1/-1}
+.overview-account-metrics{grid-template-columns:repeat(5,minmax(0,1fr))!important}
+.overview-account-metrics .account-health-metric{min-width:0}
+.account-health-pnl{margin:0 14px 14px;padding:12px 13px;border:1px solid #242424;border-radius:7px;background:#050505}
+.account-health-pnl .account-health-label{margin-bottom:9px}
+.account-pnl-track{height:9px;background:#242424;border-radius:99px;overflow:hidden}
+.account-pnl-track i{display:block;height:100%;min-width:0;border-radius:99px}
+.account-pnl-track i.pnl-positive{background:#66ff99;box-shadow:0 0 12px rgba(102,255,153,.18)}
+.account-pnl-track i.pnl-negative{background:#ff4d4d;box-shadow:0 0 12px rgba(255,77,77,.14)}
+@media(max-width:1100px){
+  .overview-account-metrics{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+}
+@media(max-width:900px){
+  .overview-account-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .overview-account-health{grid-column:1/-1}
+}
+@media(max-width:430px){
+  .overview-account-metrics{grid-template-columns:1fr!important}
+  .account-health-pnl{margin-left:10px;margin-right:10px}
+}
+
+/* Trade context fields and click-to-expand trade media */
+.trade-context-grid{margin-top:12px}
+.trade-tags-line{color:rgba(102,255,153,.72)!important;font-size:9px!important;letter-spacing:.015em}
+.media-preview-trigger{
+  display:block;width:100%;padding:0;border:0;background:transparent;cursor:zoom-in!important;
+  text-align:left;color:#fff;overflow:hidden;
+}
+.media-preview-trigger img{display:block;width:100%;height:116px;object-fit:cover;background:#050505;transition:transform .18s ease}
+.media-preview-trigger:hover img{transform:scale(1.025)}
+.media-preview-trigger span{display:block;padding:5px 7px;color:#66ff99;font-size:9px;text-align:center}
+.trade-media-trigger{
+  display:inline-flex;align-items:center;gap:6px;padding:3px 6px;border:1px solid #303030;
+  border-radius:6px;background:#0b0b0b;color:#66ff99;cursor:zoom-in!important;
+}
+.trade-media-trigger img{display:block;width:46px;height:32px;object-fit:cover;border-radius:3px}
+.trade-media-trigger span{font-size:9px;font-weight:700}
+.media-lightbox{
+  position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;
+  padding:24px;background:rgba(0,0,0,.88);backdrop-filter:blur(8px);
+}
+.media-lightbox-panel{
+  width:min(1100px,96vw);max-height:94vh;display:flex;flex-direction:column;gap:10px;
+  padding:13px;border:1px solid #383838;border-radius:12px;background:#080808;
+  box-shadow:0 24px 90px rgba(0,0,0,.55);
+}
+.media-lightbox-head{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#fff}
+.media-lightbox-head strong{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.media-lightbox-panel>img{
+  display:block;width:100%;height:auto;max-height:calc(94vh - 100px);object-fit:contain;
+  border-radius:6px;background:#000;
+}
+.media-lightbox-foot{font-size:10px;color:rgba(255,255,255,.46)}
+.data-table .trade-media-trigger{cursor:zoom-in!important}
+@media(max-width:680px){
+  .media-lightbox{padding:10px}
+  .media-lightbox-panel{width:100%;padding:9px;max-height:96vh}
+  .media-lightbox-panel>img{max-height:calc(96vh - 95px)}
+  .trade-media-trigger img{width:38px;height:28px}
+}
+
+/* Workspace typography scale — larger, clearer text across every page */
+body,.app-shell{font-size:15px!important}
+.brand strong{font-size:14px!important}
+.brand small{font-size:9px!important}
+.nav-item{font-size:14px!important;line-height:1.35}
+.nav-label{font-size:11px!important}
+.sidebar-account-head{font-size:12px!important}
+.sidebar-account-card p,.sidebar-account-card button{font-size:12px!important}
+.profile-row strong{font-size:12px!important}
+.profile-row span{font-size:11px!important}
+.breadcrumb{font-size:11px!important}
+.sync-indicator{font-size:11px!important}
+.account-select-wrap{font-size:10px!important}
+.account-select-wrap select{font-size:12px!important}
+.section-heading h1{font-size:30px!important;line-height:1.18}
+.section-heading p{font-size:14px!important;line-height:1.55}
+.eyebrow{font-size:11px!important;letter-spacing:.14em}
+.btn,.text-button{font-size:13px!important}
+.metric-top{font-size:13px!important}
+.metric-value{font-size:28px!important}
+.metric-detail{font-size:12px!important;line-height:1.45}
+.panel-head h3,.calendar-toolbar h3{font-size:16px!important}
+.panel-chip{font-size:11px!important}
+.chart-legend{font-size:12px!important}
+.chart-range,.chart-xlabels{font-size:10px!important}
+.equity-svg text{font-size:11px!important}
+.data-table th{font-size:10px!important}
+.data-table td{font-size:12px!important}
+.symbol-cell strong{font-size:13px!important}
+.symbol-cell small{font-size:11px!important;line-height:1.4}
+.account-pill,.side-pill,.account-stage-tag,.account-status-tag{font-size:11px!important}
+.muted-cell,.mono-cell{font-size:12px!important}
+.filter-bar select,.search-box input{font-size:12px!important}
+.filter-count{font-size:11px!important}
+.helper-note{font-size:12px!important;line-height:1.55}
+.weekday{font-size:10px!important}
+.day-number{font-size:10px!important}
+.calendar-day strong{font-size:11px!important}
+.calendar-day i{font-size:8px!important}
+.calendar-legend{font-size:10px!important}
+.day-pnl-hero span{font-size:11px!important}
+.day-trade div strong,.day-trade>strong{font-size:12px!important}
+.day-trade div span{font-size:10px!important}
+.drawdown-summary span,.drawdown-summary strong{font-size:11px!important}
+.rank-name strong{font-size:12px!important}
+.rank-name span{font-size:10px!important}
+.rank-bar-wrap>strong{font-size:11px!important}
+.status-tag,.health-status{font-size:10px!important}
+.risk-meter-label,.risk-meter-label strong{font-size:11px!important}
+.risk-meter-block small,.risk-stats-row span{font-size:10px!important}
+.risk-stats-row strong{font-size:13px!important}
+.health-table td:first-child strong{font-size:11px!important}
+.health-table td:first-child small{font-size:10px!important}
+.playbook-card h3{font-size:17px!important}
+.playbook-tags span{font-size:10px!important}
+.playbook-rule label{font-size:10px!important}
+.playbook-rule p{font-size:12px!important;line-height:1.6}
+.playbook-notes{font-size:11px!important;line-height:1.55}
+.add-playbook-card strong{font-size:12px!important}
+.add-playbook-card small{font-size:10px!important}
+.data-card-copy h3{font-size:15px!important}
+.data-card-copy p{font-size:12px!important;line-height:1.6}
+.storage-status{font-size:11px!important}
+.danger-zone h3{font-size:13px!important}
+.danger-zone p{font-size:11px!important;line-height:1.55}
+.app-footer{font-size:10px!important;letter-spacing:.08em}
+.modal-head h2{font-size:22px!important}
+.modal-head p{font-size:13px!important;line-height:1.5}
+.field-label{font-size:12px!important}
+.field input,.field select,.field textarea{font-size:14px!important;line-height:1.4;padding:11px 12px}
+.field small{font-size:11px!important;line-height:1.45}
+.form-divider{font-size:10px!important}
+.pnl-preview span{font-size:10px!important}
+.pnl-preview strong{font-size:14px!important}
+.account-manage-name strong{font-size:14px!important}
+.account-manage-name span,.account-limits{font-size:11px!important}
+.toast{font-size:13px!important}
+.account-health-heading strong{font-size:15px!important}
+.account-health-heading>div:first-child span{font-size:11px!important}
+.account-health-label{font-size:12px!important}
+.account-health-label strong{font-size:12px!important}
+.account-health-value{font-size:19px!important}
+.account-health-value small{font-size:12px!important}
+.account-health-foot{font-size:11px!important;line-height:1.4}
+.account-health-note{font-size:11px!important;line-height:1.5}
+.trade-chart-empty{font-size:14px!important}
+.media-upload-head strong{font-size:14px!important}
+.media-upload-head small{font-size:11px!important;line-height:1.45}
+.media-attachment>div:last-child span,.media-attachment button,.media-pending span,.media-pending button{font-size:11px!important}
+.media-error,.media-uploading{font-size:12px!important}
+.trade-tags-line{font-size:10px!important}
+.media-lightbox-head strong{font-size:14px!important}
+.media-lightbox-foot{font-size:11px!important}
+
+/* Keep the larger type comfortable on tablets and phones */
+@media(max-width:980px){
+  .section-heading h1{font-size:28px!important}
+  .metric-value{font-size:26px!important}
+  .overview-metrics-grid .metric-value{font-size:24px!important}
+}
+@media(max-width:680px){
+  .nav-item{font-size:13px!important}
+  .mobile-brand strong{font-size:12px!important}
+  .section-heading h1{font-size:25px!important}
+  .section-heading p{font-size:12px!important}
+  .metric-top{font-size:11px!important}
+  .metric-value{font-size:22px!important}
+  .metric-detail{font-size:10px!important}
+  .panel-head h3,.calendar-toolbar h3{font-size:15px!important}
+  .data-table th{font-size:10px!important}
+  .data-table td{font-size:11px!important}
+  .symbol-cell strong{font-size:12px!important}
+  .symbol-cell small{font-size:10px!important}
+  .helper-note,.data-card-copy p{font-size:11px!important}
+  .field-label{font-size:12px!important}
+  .field input,.field select,.field textarea{font-size:14px!important}
+  .account-health-value{font-size:18px!important}
+  .app-footer{font-size:9px!important}
+}
+@media(max-width:390px){
+  .section-heading h1{font-size:23px!important}
+  .metric-value{font-size:20px!important}
+  .modal-head h2{font-size:20px!important}
+  .btn{font-size:12px!important}
+}
+
+/* Individual account limits — START-centered range and focused three-value summary */
+.account-health-panel{overflow:hidden!important;border-radius:10px!important}
+.account-health-panel>.panel-head{padding:18px 22px 15px!important;margin:0!important;border-bottom:1px solid #26282c!important}
+.account-health-list{padding:14px 18px 12px!important}
+.account-health-card.account-range-card{padding:20px 24px!important;border:1px solid #26282c!important;border-radius:10px!important;background:#121315!important}
+.account-range-card .account-health-heading{margin-bottom:25px!important;align-items:center!important;flex-direction:row!important}
+.account-range-card .account-health-heading strong{font-size:15px!important}
+.account-range-section{padding:0 2px}
+.account-range-track{position:relative;height:6px;width:100%;border-radius:999px;background:#222428;overflow:visible}
+.account-range-loss,.account-range-gain{position:absolute;top:0;display:block;height:100%;max-width:50%;border-radius:999px}
+.account-range-loss{right:50%;background:#ff4d4d;border-top-right-radius:0;border-bottom-right-radius:0}
+.account-range-gain{left:50%;background:#66ff99;border-top-left-radius:0;border-bottom-left-radius:0}
+.account-range-start-marker{position:absolute;z-index:2;left:50%;top:-5px;width:2px;height:16px;transform:translateX(-50%);border-radius:2px;background:#e6e6e6;box-shadow:0 0 0 3px rgba(255,255,255,.06)}
+.account-range-scale{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:start;margin-top:12px}
+.account-range-end{display:flex;flex-direction:column;gap:3px;min-width:0}
+.account-range-end strong{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.account-range-end span,.account-range-start-label{font-size:10px;font-weight:700;letter-spacing:.12em;color:#777d87}
+.account-range-loss-label strong{color:#ff4d4d}
+.account-range-target-label{align-items:flex-end;text-align:right}
+.account-range-target-label strong{color:#66ff99}
+.account-range-start-label{justify-self:center;padding-top:1px}
+.account-range-divider{margin:19px 0 15px;border-top:1px solid #26282c}
+.account-range-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;gap:12px}
+.account-range-metric{display:flex;flex-direction:column;gap:6px;min-width:0}
+.account-range-metric strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:22px;line-height:1.2;font-weight:750;letter-spacing:-.035em;font-variant-numeric:tabular-nums;color:#fff}
+.account-range-metric span{font-size:10px;font-weight:700;letter-spacing:.12em;color:#777d87}
+.account-range-balance{align-items:center;text-align:center}
+.account-range-balance strong{color:#66ff99}
+.account-range-remaining{align-items:flex-end;text-align:right}
+.account-range-footnote{display:flex;justify-content:space-between;gap:14px;margin-top:13px;color:rgba(255,255,255,.48);font-size:10px;line-height:1.4}
+@media(max-width:900px){
+  .account-health-list{padding:12px 12px 10px!important}
+  .account-range-metric strong{font-size:20px}
+}
+@media(max-width:680px){
+  .account-health-panel>.panel-head{padding:15px 14px 12px!important}
+  .account-health-card.account-range-card{padding:16px 14px!important}
+  .account-range-card .account-health-heading{align-items:flex-start!important;gap:10px}
+  .account-range-card .account-health-heading strong{font-size:13px!important}
+  .account-range-metric strong{font-size:17px}
+  .account-range-metric span{font-size:9px;letter-spacing:.08em}
+  .account-range-footnote{flex-direction:column;gap:4px}
+}
+@media(max-width:390px){
+  .account-range-metric strong{font-size:15px}
+  .account-range-metric span{font-size:8px}
+  .account-range-end strong{font-size:11px}
+}

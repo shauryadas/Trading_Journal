@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS journal_data (
+  owner_id TEXT PRIMARY KEY,
+  payload JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
