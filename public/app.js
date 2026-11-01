@@ -252,7 +252,7 @@ function EquityChart({ series, currency = "USD" }) {
 
 function TradePnlChart({ trades }) {
   const [hovered, setHovered] = useState(null);
-  const daily = {};
+  const daily = Object.create(null);
   trades.forEach((trade) => { daily[trade.date] = (daily[trade.date] || 0) + n(trade.pnl); });
   const dates = Object.keys(daily).sort();
   let running = 0;
@@ -336,7 +336,7 @@ function accountMetrics(account, trades) {
   const losers = trades.filter((t) => n(t.pnl) < 0);
   const grossWin = winners.reduce((s, t) => s + n(t.pnl), 0);
   const grossLoss = Math.abs(losers.reduce((s, t) => s + n(t.pnl), 0));
-  const days = {};
+  const days = Object.create(null);
   trades.forEach((t) => { const day = String(t.date || ""); if (day) days[day] = (days[day] || 0) + n(t.pnl); });
   const activeDays = Object.values(days);
   const positiveDays = activeDays.filter((v) => v > 0).length;
@@ -395,11 +395,11 @@ function payoutEligibility(account, trades, payouts, requestAmount = 0) {
   const consistencyTarget = n(account.profitTarget);
   const consistencyPct = consistencyTarget > 0 ? stats.bestDay / consistencyTarget * 100 : 0;
   const consistencyOk = consistencyCap > 0 && consistencyTarget > 0 && consistencyPct <= consistencyCap;
-  const byDay = {};
+  const byDay = Object.create(null);
   accountTrades.forEach((trade) => { const day = String(trade.date || ""); if (day) byDay[day] = (byDay[day] || 0) + n(trade.pnl); });
   const profitableDays = Object.values(byDay).filter((value) => value > 0).length;
   const qualifyingProfitDays = Object.values(byDay).filter((value) => minimumProfitPerDay > 0 && value >= minimumProfitPerDay).length;
-  const minProfitDaysOk = minimumProfitableDays > 0 && minimumProfitPerDay > 0 && qualifyingProfitDays >= minimumProfitableDays;
+  const minProfitDaysOk = minimumProfitableDays <= 0 || (minimumProfitPerDay > 0 && qualifyingProfitDays >= minimumProfitableDays);
   const committed = payouts.filter((payout) => payout.account_id === account.id && ["Requested", "Paid"].includes(payout.status)).reduce((sum, payout) => sum + n(payout.amount), 0);
   const balanceAfterPayouts = grossBalance - committed;
   const safetyNetOk = safetyNet > 0 && balanceAfterPayouts >= safetyNet;
@@ -415,7 +415,7 @@ function payoutEligibility(account, trades, payouts, requestAmount = 0) {
     { key: "days", label: "Minimum trading days", passed: minDaysOk, detail: minimumDays > 0 ? stats.activeDays + " / " + minimumDays + " distinct days" : "No minimum trading-day requirement configured" },
     { key: "consistency", label: "Consistency rule", passed: consistencyOk, detail: consistencyCap > 0 && consistencyTarget > 0 ? money(stats.bestDay) + " best day / " + money(consistencyTarget) + " profit target = " + consistencyPct.toFixed(1) + "% (max " + consistencyCap + "%)" : "Set a profit target and consistency cap" },
     { key: "safety", label: "Safety-net threshold", passed: safetyNetOk, detail: safetyNet > 0 ? "Protected balance floor: " + money(safetyNet) + " · balance after payouts: " + money(balanceAfterPayouts) : "Set a Safety Net Threshold" },
-    { key: "profitDays", label: "Minimum profitable days", passed: minProfitDaysOk, detail: minimumProfitableDays > 0 && minimumProfitPerDay > 0 ? qualifyingProfitDays + " / " + minimumProfitableDays + " days with at least " + money(minimumProfitPerDay) + " profit (" + profitableDays + " green days total)" : "Set both minimum profitable days and minimum profit per day" },
+    { key: "profitDays", label: "Minimum profitable days", passed: minProfitDaysOk, detail: minimumProfitableDays <= 0 ? "No minimum profitable-day requirement configured" : minimumProfitPerDay > 0 ? qualifyingProfitDays + " / " + minimumProfitableDays + " days with at least " + money(minimumProfitPerDay) + " profit (" + profitableDays + " green days total)" : "Set a minimum profit per day" },
     { key: "minPayout", label: "Minimum payout amount", passed: minPayoutOk, detail: minimumPayoutAmount > 0 ? "Request must be at least " + money(minimumPayoutAmount) : "Set a minimum payout amount" }
   ];
   return { eligible: checks.every((check) => check.passed), checks, available, metrics: { pnl: stats.pnl, balance: grossBalance, balanceAfterPayouts, maxDrawdown: stats.maxDD, activeDays: stats.activeDays, bestDayShare: stats.bestDayShare, safetyNet, committed, profitableDays, qualifyingProfitDays } };
@@ -423,7 +423,7 @@ function payoutEligibility(account, trades, payouts, requestAmount = 0) {
 
 function buildEquitySeries(accounts, trades) {
   const start = accounts.reduce((sum, account) => sum + n(account.startingBalance), 0);
-  const byDay = {};
+  const byDay = Object.create(null);
   trades.forEach((trade) => { byDay[trade.date] = (byDay[trade.date] || 0) + n(trade.pnl); });
   const dates = Object.keys(byDay).filter(Boolean).sort();
   if (!dates.length) return [{ date: null, value: start, start: true }];
@@ -771,7 +771,7 @@ function CalendarPage({ trades, accounts }) {
   const year = month.getFullYear(), m = month.getMonth();
   const firstDay = new Date(year, m, 1).getDay();
   const daysInMonth = new Date(year, m + 1, 0).getDate();
-  const byDay = {};
+  const byDay = Object.create(null);
   trades.forEach((t) => { const date = typeof t.date === "string" ? t.date : ""; if (date) byDay[date] = (byDay[date] || 0) + n(t.pnl); });
   const days = Array.from({ length: Math.ceil((firstDay + daysInMonth) / 7) * 7 }, (_, i) => new Date(year, m, i - firstDay + 1));
   const monthTrades = trades.filter((t) => typeof t.date === "string" && t.date.startsWith(year + "-" + String(m + 1).padStart(2, "0")));
@@ -784,7 +784,7 @@ function CalendarPage({ trades, accounts }) {
   const [selectedDay, setSelectedDay] = useState(todayISO());
   const selectedTrades = trades.filter((t) => t.date === selectedDay).sort((a, b) => b.pnl - a.pnl);
   const ddSeries = (() => {
-    const daily = {};
+    const daily = Object.create(null);
     trades.forEach((t) => { daily[t.date] = (daily[t.date] || 0) + n(t.pnl); });
     const dates = Object.keys(daily).sort(); let eq = accounts.reduce((s, a) => s + n(a.startingBalance), 0), peak = eq;
     return dates.map((d) => { eq += daily[d]; peak = Math.max(peak, eq); return { date: d, dd: peak - eq }; });
@@ -827,7 +827,7 @@ function CalendarPage({ trades, accounts }) {
 }
 
 function AnalyticsPage({ accounts, trades, metrics, accountBreakdown }) {
-  const daily = {};
+  const daily = Object.create(null);
   trades.forEach((t) => { daily[t.date] = (daily[t.date] || 0) + n(t.pnl); });
   const dailyEntries = Object.entries(daily).sort((a, b) => a[0].localeCompare(b[0]));
   const best = dailyEntries.reduce((m, x) => Math.max(m, x[1]), 0);
@@ -934,7 +934,7 @@ function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, onC
   const selectedAccount = accounts.find((account) => account.id === accountId);
   const eligibility = payoutEligibility(selectedAccount, trades, payouts, n(amount));
   const pendingTotal = payouts.filter((payout) => payout.status === "Requested").reduce((sum, payout) => sum + n(payout.amount), 0);
-  const receivedTotal = 0; // Displayed PAID OUT total is intentionally reset to $0; payout eligibility calculations remain unchanged.
+  const receivedTotal = payouts.filter((payout) => payout.status === "Paid").reduce((sum, payout) => sum + n(payout.amount), 0);
   const submit = async (event) => {
     event.preventDefault();
     setError("");
@@ -956,7 +956,7 @@ function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, onC
     <div className="payout-summary-grid">
       <article className="payout-summary-card"><span>PAID OUT</span><strong>${money(receivedTotal)}</strong><small>${payouts.filter((payout) => payout.status === "Paid").length} completed payouts</small></article>
       <article className="payout-summary-card"><span>REQUESTED</span><strong>${money(pendingTotal)}</strong><small>${payouts.filter((payout) => payout.status === "Requested").length} awaiting processing</small></article>
-      <article className="payout-summary-card"><span>REQUEST HISTORY</span><strong>0</strong><small>All accounts · all statuses</small></article>
+      <article className="payout-summary-card"><span>REQUEST HISTORY</span><strong>${payouts.length}</strong><small>All accounts · all statuses</small></article>
     </div>
     <div className="payout-work-grid">
       <section className="panel payout-request-panel">
@@ -1016,6 +1016,7 @@ function App() {
   const [storageOwnerId, setStorageOwnerId] = useState(null);
   const [legacyCache, setLegacyCache] = useState(null);
   const [legacyPrompt, setLegacyPrompt] = useState(false);
+  const [cachePromptType, setCachePromptType] = useState("legacy");
   const [ready, setReady] = useState(false);
   const [notice, setNotice] = useState("");
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem("tj-theme") === "light" ? "light" : "dark"; } catch { return "dark"; } });
@@ -1026,7 +1027,7 @@ function App() {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem("tj-theme", theme); } catch (e) {}
     const themeColor = document.querySelector('meta[name="theme-color"]');
-    if (themeColor) themeColor.setAttribute("content", theme === "light" ? "#f5f7f5" : "#000000");
+    if (themeColor) themeColor.setAttribute("content", theme === "light" ? "#f5f7f5" : "#0a1017");
   }, [theme]);
 
   const toast = (message) => {
@@ -1057,6 +1058,7 @@ function App() {
       let loaded = null;
       let userStorageKey = null;
       let foundLegacyCache = null;
+      let foundLocalRecovery = null;
       try {
         const response = await fetch("/api/journal", { method: "GET", credentials: "same-origin" });
         if (response.status === 401) {
@@ -1070,13 +1072,20 @@ function App() {
             userStorageKey = STORAGE_KEY + ":" + encodeURIComponent(ownerId);
             setStorageOwnerId(ownerId);
             loaded = result.payload || null;
-            if (!loaded) {
-              try {
-                const local = localStorage.getItem(userStorageKey);
-                if (local) loaded = JSON.parse(local);
-              } catch (e) {}
-            }
-            if (!loaded) {
+            try {
+              const local = localStorage.getItem(userStorageKey);
+              if (local) {
+                const record = JSON.parse(local);
+                const candidate = record?.payload && typeof record.payload === "object" ? record.payload : record;
+                const ownerMatches = !record?.ownerId || String(record.ownerId) === ownerId;
+                const validCache = ownerMatches && candidate && Array.isArray(candidate.accounts) && Array.isArray(candidate.trades) && Array.isArray(candidate.playbook);
+                const cacheHasData = validCache && [candidate.accounts, candidate.trades, candidate.playbook, candidate.backtests || []].some((items) => items.length > 0);
+                const cloudHasData = loaded && [loaded.accounts || [], loaded.trades || [], loaded.playbook || [], loaded.backtests || []].some((items) => Array.isArray(items) && items.length > 0);
+                if (cacheHasData && !cloudHasData) foundLocalRecovery = { ...candidate, backtests: Array.isArray(candidate.backtests) ? candidate.backtests : [] };
+              }
+            } catch (e) {}
+            if (!loaded && foundLocalRecovery) loaded = foundLocalRecovery;
+            if (!loaded || (Array.isArray(loaded.accounts) && Array.isArray(loaded.trades) && Array.isArray(loaded.playbook) && ![loaded.accounts, loaded.trades, loaded.playbook, loaded.backtests || []].some((items) => Array.isArray(items) && items.length > 0))) {
               try {
                 const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
                 if (legacy) {
@@ -1101,13 +1110,15 @@ function App() {
       loaded = normalizeJournalPayload(loaded);
       loaded = { ...loaded, accounts: loaded.accounts.map((account) => isAccountFailed(account, loaded.trades) ? { ...account, accountStatus: "Failed" } : account) };
       setStorageKey(userStorageKey);
-      if (foundLegacyCache) {
-        setLegacyCache(foundLegacyCache);
+      const recoveryCache = foundLocalRecovery || foundLegacyCache;
+      if (recoveryCache) {
+        setLegacyCache(recoveryCache);
+        setCachePromptType(foundLocalRecovery ? "local" : "legacy");
         setLegacyPrompt(true);
       }
       setData(loaded);
       setReady(true);
-      setSyncStatus(foundLegacyCache ? "Previous browser journal needs confirmation" : "Journal loaded");
+      setSyncStatus(recoveryCache ? "Local journal backup needs confirmation" : "Journal loaded");
     })();
     return () => { alive = false; };
   }, []);
@@ -1147,7 +1158,7 @@ function App() {
     const wins = visibleTrades.filter((t) => n(t.pnl) > 0), losses = visibleTrades.filter((t) => n(t.pnl) < 0);
     const grossWin = wins.reduce((s, t) => s + n(t.pnl), 0);
     const grossLoss = Math.abs(losses.reduce((s, t) => s + n(t.pnl), 0));
-    const days = {};
+    const days = Object.create(null);
     visibleTrades.forEach((t) => { const day = String(t.date || ""); if (day) days[day] = (days[day] || 0) + n(t.pnl); });
     const dayValues = Object.values(days);
     const rValues = visibleTrades
@@ -1181,13 +1192,14 @@ function App() {
     setData(imported);
     setLegacyCache(null);
     setLegacyPrompt(false);
-    toast("Previous browser journal imported · syncing to this account");
+    toast(cachePromptType === "local" ? "Local journal backup restored · syncing to cloud" : "Previous browser journal imported · syncing to this account");
   };
   const startFreshJournal = () => {
-    setData(clone(DEMO_DATA));
+    setData({ accounts: [], trades: [], playbook: [], backtests: [] });
     setLegacyCache(null);
     setLegacyPrompt(false);
-    toast("Started a fresh journal for this account");
+    setCachePromptType("legacy");
+    toast("Started a clean journal for this account");
   };
 
   const requestPayout = async ({ accountId, amount, note }) => {
@@ -1378,11 +1390,11 @@ function App() {
     ${modal?.type === "trade" ? html`<${TradeModal} trade=${modal.trade} accounts=${data.accounts} trades=${data.trades} initialAccountId=${accountFilter === "all" ? data.accounts[0]?.id : accountFilter} onClose=${() => setModal(null)} onSave=${addTrade} />` : null}
     ${modal?.type === "accounts" ? html`<${AccountsModal} accounts=${data.accounts} trades=${data.trades} onClose=${() => setModal(null)} onAdd=${addAccount} onUpdate=${updateAccount} onDelete=${deleteAccount} />` : null}
     ${modal?.type === "playbook" ? html`<${PlaybookModal} item=${modal.item} onClose=${() => setModal(null)} onSave=${savePlaybook} />` : null}
-    ${legacyPrompt && legacyCache ? html`<${Modal} title="Import previous browser journal?" subtitle="Unassigned browser cache · account confirmation required" onClose=${() => {}}>
+    ${legacyPrompt && legacyCache ? html`<${Modal} title=${cachePromptType === "local" ? "Recover local journal backup?" : "Import previous browser journal?"} subtitle=${cachePromptType === "local" ? "Backup associated with this signed-in account" : "Unassigned browser cache · account confirmation required"} onClose=${() => {}}>
       <div className="modal-form">
-        <p>This browser contains an older journal cache with <strong>${legacyCache.accounts.length} accounts</strong>, <strong>${legacyCache.trades.length} trades</strong>, <strong>${legacyCache.playbook.length} playbook setups</strong> and <strong>${legacyCache.backtests.length} backtests</strong>.</p>
-        <div className="helper-note">This cache was created before journals were isolated by signed-in account. It is not linked to a user ID and may belong to another person who used this browser. Import only if you recognize these records as yours.</div>
-        <div className="modal-actions"><button type="button" className="btn btn-primary" onClick=${importLegacyJournal}>Import into this account</button><button type="button" className="btn btn-ghost" onClick=${startFreshJournal}>Start with a clean journal</button></div>
+        <p>This browser backup contains <strong>${legacyCache.accounts.length} accounts</strong>, <strong>${legacyCache.trades.length} trades</strong>, <strong>${legacyCache.playbook.length} playbook setups</strong> and <strong>${legacyCache.backtests.length} backtests</strong>.</p>
+        <div className="helper-note">${cachePromptType === "local" ? "The cloud journal is empty, but this browser has a non-empty backup associated with your signed-in account. Restore it only if these are the records you expect." : "This cache was created before journals were isolated by signed-in account. It is not linked to a user ID and may belong to another person who used this browser. Import only if you recognize these records as yours."}</div>
+        <div className="modal-actions"><button type="button" className="btn btn-primary" onClick=${importLegacyJournal}>${cachePromptType === "local" ? "Restore local backup" : "Import into this account"}</button><button type="button" className="btn btn-ghost" onClick=${startFreshJournal}>Start with a clean journal</button></div>
       </div>
     </${Modal}` : null}
     ${notice ? html`<div className="toast"><span className="toast-check">✓</span>${notice}</div>` : null}
