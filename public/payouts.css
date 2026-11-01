@@ -65,7 +65,7 @@ html[data-theme="light"] .payout-check-list,html[data-theme="light"] .payout-che
 html[data-theme="light"] .payout-account-meta span,html[data-theme="light"] .payout-account-meta strong,html[data-theme="light"] .payout-available{border-color:#e1e8e2}
 html[data-theme="light"] .payout-account-meta strong{color:#26342b}
 html[data-theme="light"] .payout-available{background:#f6f9f6}
-html[data-theme="light"] .payout-history-table th{color:#738078}
+html[data-theme="light"] .payout-history-table th{color:#59675e}
 
 /* Light-mode status colors meet readable contrast on tinted status surfaces */
 html[data-theme="light"] .payout-eligibility-state.is-ready,html[data-theme="light"] .payout-history-status.paid{color:#456c52;background:#eaf2ec}

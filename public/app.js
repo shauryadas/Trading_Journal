@@ -5,6 +5,7 @@ const createRoot = window.ReactDOM.createRoot;
 const htm = window.htm;
 const html = htm.bind(React.createElement);
 const STORAGE_KEY = "edge-journal-v2";
+const LEGACY_STORAGE_KEY = "edge-journal-v1";
 const todayISO = () => {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -38,6 +39,25 @@ const calcRisk = (trade) => {
 };
 const calcR = (trade) => calcRisk(trade) > 0 ? calcPnl(trade) / calcRisk(trade) : 0;
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
+const compareTradesChronologically = (left, right, leftIndex = 0, rightIndex = 0) => {
+  const dateOrder = String(left?.date || "").localeCompare(String(right?.date || ""));
+  if (dateOrder) return dateOrder;
+  const leftTime = Date.parse(left?.createdAt || "");
+  const rightTime = Date.parse(right?.createdAt || "");
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
+  return leftIndex - rightIndex;
+};
+const normalizeJournalPayload = (value) => {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
+  return {
+    ...source,
+    accounts: records(source.accounts).map((item) => ({ ...item, id: item.id ?? uid() })),
+    trades: records(source.trades).map((item) => ({ ...item, id: item.id ?? uid(), media: records(item.media) })),
+    playbook: records(source.playbook).map((item) => ({ ...item, id: item.id ?? uid(), tags: Array.isArray(item.tags) ? item.tags : [] })),
+    backtests: records(source.backtests).map((item) => ({ ...item, id: item.id ?? uid() }))
+  };
+};
 
 const DEMO_DATA = (() => {
   const accounts = [
@@ -331,7 +351,7 @@ function accountMetrics(account, trades) {
   let equity = n(account?.startingBalance), peak = equity, maxDD = 0;
   trades
     .map((trade, index) => ({ trade, index }))
-    .sort((a, b) => String(a.trade.date || "").localeCompare(String(b.trade.date || "")) || a.index - b.index)
+    .sort((a, b) => compareTradesChronologically(a.trade, b.trade, a.index, b.index))
     .forEach(({ trade }) => {
       equity += n(trade.pnl);
       peak = Math.max(peak, equity);
@@ -524,6 +544,7 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
         marketBias: form.marketBias, emotionState: form.emotionState, positionSize: form.positionSize.trim(),
         notes: form.notes, pnl: n(form.pnl), riskAmount: n(form.riskAmount),
         rMultiple: n(form.riskAmount) > 0 ? n(form.pnl) / n(form.riskAmount) : 0,
+        createdAt: trade?.createdAt || new Date().toISOString(),
         media: [...media, ...uploaded]
       };
       const keptKeys = new Set(item.media.map((file) => file.key));
@@ -988,10 +1009,14 @@ function App() {
   const [payoutLoading, setPayoutLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState("Loading saved journal…");
   const [storageKey, setStorageKey] = useState(null);
+  const [storageOwnerId, setStorageOwnerId] = useState(null);
+  const [legacyCache, setLegacyCache] = useState(null);
+  const [legacyPrompt, setLegacyPrompt] = useState(false);
   const [ready, setReady] = useState(false);
   const [notice, setNotice] = useState("");
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem("tj-theme") === "light" ? "light" : "dark"; } catch { return "dark"; } });
   const noticeTimer = useRef(null);
+  const syncQueue = useRef(Promise.resolve());
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1027,6 +1052,7 @@ function App() {
     (async () => {
       let loaded = null;
       let userStorageKey = null;
+      let foundLegacyCache = null;
       try {
         const response = await fetch("/api/journal", { method: "GET", credentials: "same-origin" });
         if (response.status === 401) {
@@ -1038,11 +1064,23 @@ function App() {
           const ownerId = String(result.ownerId || "").trim();
           if (ownerId) {
             userStorageKey = STORAGE_KEY + ":" + encodeURIComponent(ownerId);
+            setStorageOwnerId(ownerId);
             loaded = result.payload || null;
             if (!loaded) {
               try {
                 const local = localStorage.getItem(userStorageKey);
                 if (local) loaded = JSON.parse(local);
+              } catch (e) {}
+            }
+            if (!loaded) {
+              try {
+                const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+                if (legacy) {
+                  const candidate = JSON.parse(legacy);
+                  if (candidate && Array.isArray(candidate.accounts) && Array.isArray(candidate.trades) && Array.isArray(candidate.playbook)) {
+                    foundLegacyCache = { ...candidate, backtests: Array.isArray(candidate.backtests) ? candidate.backtests : [] };
+                  }
+                }
               } catch (e) {}
             }
           }
@@ -1056,39 +1094,47 @@ function App() {
         return;
       }
       if (!loaded || !Array.isArray(loaded.accounts) || !Array.isArray(loaded.trades) || !Array.isArray(loaded.playbook)) loaded = clone(DEMO_DATA);
-      if (!Array.isArray(loaded.backtests)) loaded.backtests = [];
+      loaded = normalizeJournalPayload(loaded);
       loaded = { ...loaded, accounts: loaded.accounts.map((account) => isAccountFailed(account, loaded.trades) ? { ...account, accountStatus: "Failed" } : account) };
       setStorageKey(userStorageKey);
+      if (foundLegacyCache) {
+        setLegacyCache(foundLegacyCache);
+        setLegacyPrompt(true);
+      }
       setData(loaded);
       setReady(true);
-      setSyncStatus("Journal loaded");
+      setSyncStatus(foundLegacyCache ? "Previous browser journal needs confirmation" : "Journal loaded");
     })();
     return () => { alive = false; };
   }, []);
 
   useEffect(() => {
-    if (!ready || !storageKey) return;
-    try { localStorage.setItem(storageKey, JSON.stringify(data)); } catch (e) {}
-    setSyncStatus("Saving changes…");
-    const timer = window.setTimeout(async () => {
-      try {
-        const response = await fetch("/api/journal", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ payload: data })
-        });
-        if (response.status === 401) {
-          location.replace("/login?next=" + encodeURIComponent(location.pathname + location.search));
-          return;
+    if (!ready || !storageKey || legacyPrompt) return;
+    try { localStorage.setItem(storageKey, JSON.stringify({ ownerId: storageOwnerId, savedAt: Date.now(), payload: data })); } catch (e) {}
+    const snapshot = JSON.stringify({ payload: data });
+    const timer = window.setTimeout(() => {
+      // Serialize writes so a slow older PUT can never finish after and overwrite a newer journal snapshot.
+      syncQueue.current = syncQueue.current.catch(() => {}).then(async () => {
+        setSyncStatus("Saving changes…");
+        try {
+          const response = await fetch("/api/journal", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: snapshot
+          });
+          if (response.status === 401) {
+            location.replace("/login?next=" + encodeURIComponent(location.pathname + location.search));
+            return;
+          }
+          setSyncStatus(response.ok ? "Cloud synced" : "Cloud sync failed · local copy only");
+        } catch (e) {
+          setSyncStatus("Cloud sync unavailable · local copy only");
         }
-        setSyncStatus(response.ok ? "Cloud synced" : "Cloud sync failed · local copy only");
-      } catch (e) {
-        setSyncStatus("Cloud sync unavailable · local copy only");
-      }
+      });
     }, 650);
     return () => window.clearTimeout(timer);
-  }, [data, ready, storageKey]);
+  }, [data, ready, storageKey, storageOwnerId, legacyPrompt]);
 
   const visibleAccounts = useMemo(() => accountFilter === "all" ? data.accounts : data.accounts.filter((a) => a.id === accountFilter), [data.accounts, accountFilter]);
   const visibleTrades = useMemo(() => data.trades.filter((t) => visibleAccounts.some((a) => a.id === t.accountId)), [data.trades, visibleAccounts]);
@@ -1106,7 +1152,7 @@ function App() {
     const bestDay = Math.max(0, ...dayValues);
     const profitTargetTotal = visibleAccounts.reduce((sum, account) => sum + n(account.profitTarget), 0);
     let eq = visibleAccounts.reduce((s, a) => s + n(a.startingBalance), 0), peak = eq, maxDD = 0;
-    visibleTrades.map((trade, index) => ({ trade, index })).sort((a, b) => String(a.trade.date || "").localeCompare(String(b.trade.date || "")) || a.index - b.index).forEach(({ trade }) => {
+    visibleTrades.map((trade, index) => ({ trade, index })).sort((a, b) => compareTradesChronologically(a.trade, b.trade, a.index, b.index)).forEach(({ trade }) => {
       eq += n(trade.pnl);
       peak = Math.max(peak, eq);
       maxDD = Math.max(maxDD, peak - eq);
@@ -1124,6 +1170,21 @@ function App() {
   }, [visibleAccounts, visibleTrades]);
   const series = useMemo(() => buildEquitySeries(visibleAccounts, visibleTrades), [visibleAccounts, visibleTrades]);
   const accountBreakdown = useMemo(() => visibleAccounts.map((account) => ({ account, stats: accountMetrics(account, data.trades.filter((t) => t.accountId === account.id)), failed: isAccountFailed(account, data.trades) })), [visibleAccounts, data.trades]);
+
+  const importLegacyJournal = () => {
+    if (!legacyCache) return;
+    const imported = normalizeJournalPayload(legacyCache);
+    setData(imported);
+    setLegacyCache(null);
+    setLegacyPrompt(false);
+    toast("Previous browser journal imported · syncing to this account");
+  };
+  const startFreshJournal = () => {
+    setData(clone(DEMO_DATA));
+    setLegacyCache(null);
+    setLegacyPrompt(false);
+    toast("Started a fresh journal for this account");
+  };
 
   const requestPayout = async ({ accountId, amount, note }) => {
     const response = await fetch("/api/payouts", {
@@ -1239,7 +1300,7 @@ function App() {
         if (!Array.isArray(next.accounts) || !Array.isArray(next.trades) || !Array.isArray(next.playbook)) throw new Error("Invalid backup");
         if (!window.confirm("Replace your current journal with the imported backup?")) return;
         deleteStoredMedia(data.trades);
-        setData(next); setAccountFilter("all"); toast("Backup imported");
+        setData(normalizeJournalPayload(next)); setAccountFilter("all"); toast("Backup imported");
       } catch (err) { toast("Could not read that backup file"); }
       e.target.value = "";
     };
@@ -1306,6 +1367,13 @@ function App() {
     ${modal?.type === "trade" ? html`<${TradeModal} trade=${modal.trade} accounts=${data.accounts} trades=${data.trades} initialAccountId=${accountFilter === "all" ? data.accounts[0]?.id : accountFilter} onClose=${() => setModal(null)} onSave=${addTrade} />` : null}
     ${modal?.type === "accounts" ? html`<${AccountsModal} accounts=${data.accounts} trades=${data.trades} onClose=${() => setModal(null)} onAdd=${addAccount} onUpdate=${updateAccount} onDelete=${deleteAccount} />` : null}
     ${modal?.type === "playbook" ? html`<${PlaybookModal} item=${modal.item} onClose=${() => setModal(null)} onSave=${savePlaybook} />` : null}
+    ${legacyPrompt && legacyCache ? html`<${Modal} title="Import previous browser journal?" subtitle="Unassigned browser cache · account confirmation required" onClose=${() => {}}>
+      <div className="modal-form">
+        <p>This browser contains an older journal cache with <strong>${legacyCache.accounts.length} accounts</strong>, <strong>${legacyCache.trades.length} trades</strong>, <strong>${legacyCache.playbook.length} playbook setups</strong> and <strong>${legacyCache.backtests.length} backtests</strong>.</p>
+        <div className="helper-note">This cache was created before journals were isolated by signed-in account. It is not linked to a user ID and may belong to another person who used this browser. Import only if you recognize these records as yours.</div>
+        <div className="modal-actions"><button type="button" className="btn btn-primary" onClick=${importLegacyJournal}>Import into this account</button><button type="button" className="btn btn-ghost" onClick=${startFreshJournal}>Start with a clean journal</button></div>
+      </div>
+    </${Modal}` : null}
     ${notice ? html`<div className="toast"><span className="toast-check">✓</span>${notice}</div>` : null}
   </div>`;
 }

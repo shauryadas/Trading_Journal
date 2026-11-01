@@ -3,7 +3,7 @@
 .theme-toggle:hover{border-color:#66ff99;background:#151515}
 .theme-toggle svg{flex:none}
 @media(max-width:680px){.theme-toggle{height:30px;min-width:32px;padding:0 8px}.theme-toggle span{display:none}.topbar-actions{gap:7px}}
-html[data-theme="light"]{color-scheme:light!important;--bg:#f5f7f5;--panel:#fff;--panel-2:#f8faf8;--panel-3:#edf2ee;--line:#e2e8e3;--line-strong:#d1dbd3;--text:#26342b;--muted:#647269;--dim:#66736a;--green:#456c52;--green-soft:#eaf2ec;--red:#a64f4f;--red-soft:#f8eded;--blue:#4f6f8d;--blue-soft:#edf2f7;--amber:#85652f;--amber-soft:#f7f2e8}
+html[data-theme="light"]{color-scheme:light!important;--bg:#f5f7f5;--panel:#fff;--panel-2:#f8faf8;--panel-3:#edf2ee;--surface:#fff;--surface-soft:#f5f8f5;--line:#e2e8e3;--line-strong:#d1dbd3;--text:#26342b;--muted:#59675e;--dim:#66736a;--green:#456c52;--green-soft:#eaf2ec;--red:#a64f4f;--red-soft:#f8eded;--blue:#4f6f8d;--blue-soft:#edf2f7;--amber:#85652f;--amber-soft:#f7f2e8;--text-primary:var(--text);--text-secondary:var(--muted);--text-tertiary:var(--dim);--border-subtle:var(--line);--border-strong:var(--line-strong);--success:var(--green);--success-surface:var(--green-soft);--danger:var(--red);--danger-surface:var(--red-soft);--warning:var(--amber);--warning-surface:var(--amber-soft);--focus-ring:var(--blue);--control-bg:var(--surface);--control-border:var(--line-strong)}
 html[data-theme="light"] body,html[data-theme="light"] #root{background:#f5f7f5!important;color:#26342b!important}
 html[data-theme="light"] .app-shell,html[data-theme="light"] .main-area{background:#f5f7f5!important;color:#26342b!important}
 html[data-theme="light"] .sidebar{background:#fff!important;border-color:#e2e8e3!important}
@@ -187,4 +187,29 @@ html[data-theme="light"] .account-range-footnote{color:#59675e!important}
   html[data-theme="light"] .mobile-nav-item{color:#59675e}
   html[data-theme="light"] .mobile-nav-item.active{color:#456c52;background:#eaf2ec}
   html[data-theme="light"] .modal-actions{background:#fff;border-top:1px solid #e2e8e3}
+}
+
+/* Complete light-mode treatment for account-health surfaces and status tags. */
+html[data-theme="light"] .account-health-card{background:#fff!important;border-color:#e2e8e3!important}
+html[data-theme="light"] .account-health-heading strong{color:#26342b!important}
+html[data-theme="light"] .account-health-heading>div:first-child span{color:#59675e!important}
+html[data-theme="light"] .account-stage-tag{color:#344239!important;background:#f5f8f5!important;border-color:#d1dbd3!important}
+html[data-theme="light"] .account-status-tag.active{color:#456c52!important;background:#eaf2ec!important;border-color:#c9ddcd!important}
+html[data-theme="light"] .account-status-tag.failed{color:#a64f4f!important;background:#f8eded!important;border-color:#e8caca!important}
+html[data-theme="light"] .account-status-tag.pass{color:#344239!important;background:#edf2ee!important;border-color:#d1dbd3!important}
+html[data-theme="light"] .account-health-metric{background:#f8faf8!important;border-color:#e2e8e3!important}
+html[data-theme="light"] .account-health-label{color:#59675e!important}
+html[data-theme="light"] .account-health-label strong,html[data-theme="light"] .account-health-value{color:#26342b!important}
+html[data-theme="light"] .account-health-value small,html[data-theme="light"] .account-health-foot,html[data-theme="light"] .account-health-note{color:#59675e!important}
+html[data-theme="light"] .health-progress{background:#e5ebe6!important}
+html[data-theme="light"] .account-health-pnl{background:#f8faf8!important;border-color:#e2e8e3!important}
+html[data-theme="light"] .account-pnl-track{background:#e5ebe6!important}
+html[data-theme="light"] .account-health-pnl .account-health-label{color:#59675e!important}
+html[data-theme="light"] .account-health-pnl .account-health-label strong{color:#26342b!important}
+html[data-theme="light"] .account-health-note{color:#59675e!important}
+
+/* Shared interaction and motion accessibility. */
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--green,#456c52)!important;outline-offset:3px!important}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }

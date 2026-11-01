@@ -13,9 +13,17 @@ const fmt = (value) => new Intl.NumberFormat("en-US", { style: "currency", curre
 const pct = (value) => (Number(value) || 0).toFixed(1) + "%";
 const makeId = () => globalThis.crypto?.randomUUID ? crypto.randomUUID() : "bt_" + Date.now() + "_" + Math.random().toString(36).slice(2);
 const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+const chronologicalBacktests = (items) => items.map((trade, index) => ({ trade, index })).sort((a, b) => {
+  const dateOrder = String(a.trade.date || "").localeCompare(String(b.trade.date || ""));
+  if (dateOrder) return dateOrder;
+  const aTime = Date.parse(a.trade.createdAt || "");
+  const bTime = Date.parse(b.trade.createdAt || "");
+  if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return aTime - bTime;
+  return b.index - a.index;
+}).map(({ trade }) => trade);
 
 function BTEquityCurve({ trades }) {
-  const series = [...trades].sort((a, b) => (a.date || "").localeCompare(b.date || "")).reduce((points, trade) => {
+  const series = chronologicalBacktests(trades).reduce((points, trade) => {
     const previous = points.length ? points[points.length - 1].value : 0;
     points.push({ date: trade.date, value: previous + (Number(trade.pnl) || 0) });
     return points;
@@ -95,7 +103,7 @@ function BacktestingPage({ trades = [], onSave, onDelete, theme = "dark" }) {
     const risk = stop == null || !Number.isFinite(stop) ? 0 : Math.abs(entry - stop) * qty * point;
     return { pnl: Number.isFinite(pnl) ? pnl : 0, risk: Number.isFinite(risk) ? risk : 0, r: risk > 0 ? pnl / risk : 0 };
   }, [form]);
-  const sorted = useMemo(() => [...trades].sort((a, b) => (a.date || "").localeCompare(b.date || "")), [trades]);
+  const sorted = useMemo(() => chronologicalBacktests(trades), [trades]);
   const stats = useMemo(() => {
     const wins = trades.filter((t) => Number(t.pnl) > 0), losses = trades.filter((t) => Number(t.pnl) < 0);
     const grossWin = wins.reduce((s, t) => s + Number(t.pnl), 0);

@@ -47,6 +47,22 @@ html[data-theme="dark"] {
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font-size: 15px; }
+:root {
+  --text-primary: var(--text);
+  --text-secondary: var(--muted);
+  --text-tertiary: var(--dim);
+  --border-subtle: var(--line);
+  --border-strong: var(--line-strong);
+  --success: var(--green);
+  --success-surface: var(--green-soft);
+  --danger: var(--red);
+  --danger-surface: var(--red-soft);
+  --warning: var(--amber);
+  --warning-surface: var(--amber-soft);
+  --focus-ring: var(--blue);
+  --control-bg: var(--surface);
+  --control-border: var(--line-strong);
+}
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }

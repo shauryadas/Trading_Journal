@@ -9,7 +9,7 @@ function num(value) {
 }
 
 function evaluate(account, trades, payouts, requestAmount = 0) {
-  const accountTrades = trades.filter((trade) => trade.accountId === account.id);
+  const accountTrades = trades.filter((trade) => trade && typeof trade === "object" && trade.accountId === account.id);
   const byDay = {};
   for (const trade of accountTrades) {
     const date = String(trade.date || "");
@@ -24,7 +24,14 @@ function evaluate(account, trades, payouts, requestAmount = 0) {
   let maxDrawdown = 0;
   accountTrades
     .map((trade, index) => ({ trade, index }))
-    .sort((a, b) => String(a.trade.date || "").localeCompare(String(b.trade.date || "")) || a.index - b.index)
+    .sort((a, b) => {
+      const dateOrder = String(a.trade.date || "").localeCompare(String(b.trade.date || ""));
+      if (dateOrder) return dateOrder;
+      const aTime = Date.parse(a.trade.createdAt || "");
+      const bTime = Date.parse(b.trade.createdAt || "");
+      if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return aTime - bTime;
+      return a.index - b.index;
+    })
     .forEach(({ trade }) => {
       equity += num(trade.pnl);
       peak = Math.max(peak, equity);
@@ -106,7 +113,7 @@ export default async function (req, res) {
       if (!payload || !Array.isArray(payload.accounts) || !Array.isArray(payload.trades) || !journalUpdatedAt) {
         return res.status(409).json({ error: "Your journal data is not available yet. Sync your journal and try again." });
       }
-      const account = payload.accounts.find((item) => item.id === accountId);
+      const account = payload.accounts.find((item) => item && typeof item === "object" && item.id === accountId);
       if (!account) return res.status(404).json({ error: "That account was not found in your journal." });
 
       const payoutResult = await db.query("SELECT id, account_id, amount, status FROM payout_requests ORDER BY created_at DESC");
