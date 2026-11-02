@@ -20,14 +20,20 @@ export default async function (req, res) {
       const storedTrades = Array.isArray(stored?.trades) ? stored.trades : [];
       const mediaPrefixes = ["trade-media/user-" + Buffer.from(ownerId).toString("base64url") + "/"];
       if (req.member?.id != null) mediaPrefixes.push("trade-media/" + String(req.member.id) + "/");
+      const restoreMediaUrls = async (attachments) => Promise.all(
+        (Array.isArray(attachments) ? attachments : [])
+          .filter(file => file && typeof file === "object" && typeof file.key === "string" && mediaPrefixes.some(prefix => file.key.startsWith(prefix)))
+          .map(async file => ({
+            ...file,
+            url: await storage.url(file.key).catch(() => null)
+          }))
+      );
       const payload = stored ? {
         ...stored,
         trades: await Promise.all(storedTrades.filter(trade => trade && typeof trade === "object" && !Array.isArray(trade)).map(async trade => ({
           ...trade,
-          media: await Promise.all((Array.isArray(trade.media) ? trade.media : []).filter(file => file && typeof file === "object" && typeof file.key === "string" && mediaPrefixes.some(prefix => file.key.startsWith(prefix))).map(async file => ({
-            ...file,
-            url: await storage.url(file.key).catch(() => null)
-          })))
+          media: await restoreMediaUrls(trade.media),
+          preEntryMedia: await restoreMediaUrls(trade.preEntryMedia)
         })))
       } : null;
 
@@ -48,7 +54,8 @@ export default async function (req, res) {
       ...payload,
       trades: payload.trades.map(trade => ({
         ...trade,
-        media: (Array.isArray(trade?.media) ? trade.media : []).filter(file => file?.key).map(({ url, ...file }) => file)
+        media: (Array.isArray(trade?.media) ? trade.media : []).filter(file => file && typeof file.key === "string" && file.key).map(({ url, ...file }) => file),
+        preEntryMedia: (Array.isArray(trade?.preEntryMedia) ? trade.preEntryMedia : []).filter(file => file && typeof file.key === "string" && file.key).map(({ url, ...file }) => file)
       }))
     };
     const serialized = JSON.stringify(persisted);
