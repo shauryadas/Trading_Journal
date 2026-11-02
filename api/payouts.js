@@ -8,6 +8,15 @@ function num(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function toCents(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  const scaled = parsed * 100;
+  if (Math.abs(scaled - Math.round(scaled)) > 1e-7) return null;
+  const cents = Math.round(scaled);
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
 function evaluate(account, trades, payouts, requestAmount = 0) {
   const accountTrades = trades.filter((trade) => trade && typeof trade === "object" && trade.accountId === account.id);
   const byDay = Object.create(null);
@@ -22,6 +31,7 @@ function evaluate(account, trades, payouts, requestAmount = 0) {
   let equity = startingBalance;
   let peak = startingBalance;
   let maxDrawdown = 0;
+  let minimumEquity = equity;
   accountTrades
     .map((trade, index) => ({ trade, index }))
     .sort((a, b) => {
@@ -35,6 +45,7 @@ function evaluate(account, trades, payouts, requestAmount = 0) {
     .forEach(({ trade }) => {
       equity += num(trade.pnl);
       peak = Math.max(peak, equity);
+      minimumEquity = Math.min(minimumEquity, equity);
       maxDrawdown = Math.max(maxDrawdown, peak - equity);
     });
 
@@ -43,7 +54,8 @@ function evaluate(account, trades, payouts, requestAmount = 0) {
   const consistencyCap = num(account.consistencyCap);
   const consistencyTarget = num(account.profitTarget);
   const consistencyPct = consistencyTarget > 0 ? Math.max(0, ...positiveDays) / consistencyTarget * 100 : 0;
-  const safetyNet = num(account.safetyNetBalance);
+  const safetyNetThreshold = num(account.safetyNetBalance);
+  const protectedBalanceFloor = startingBalance + safetyNetThreshold;
   const minimumProfitableDays = num(account.minimumProfitableDays);
   const minimumProfitPerDay = num(account.minimumProfitPerDay);
   const minimumPayoutAmount = num(account.minimumPayoutAmount);
@@ -52,32 +64,32 @@ function evaluate(account, trades, payouts, requestAmount = 0) {
   const profitableDays = positiveDays.length;
 
   const mll = num(account.maxDrawdown);
-  const failed = String(account.accountStatus || "").toLowerCase() === "failed" || (mll > 0 && maxDrawdown >= mll);
-  const stageOk = String(account.accountStage || "").toLowerCase() === "funded";
+  const mllFloor = startingBalance - mll;
+  const mllHit = mll > 0 && minimumEquity <= mllFloor;
+  const failed = String(account.accountStatus || "").toLowerCase() === "failed" || mllHit;
+  const stageOk = ["funded", "instant"].includes(String(account.accountStage || "").toLowerCase());
   const activeOk = !failed && String(account.accountStatus || "Active").toLowerCase() === "active";
   const minDaysOk = minimumTradingDays <= 0 || days.length >= minimumTradingDays;
-  const consistencyOk = consistencyCap > 0 && consistencyTarget > 0 && consistencyPct <= consistencyCap;
+  const consistencyOk = consistencyCap <= 0 || (consistencyTarget > 0 && consistencyPct <= consistencyCap);
   const minProfitDaysOk = minimumProfitableDays <= 0 || (minimumProfitPerDay > 0 && qualifyingProfitDays >= minimumProfitableDays);
 
   const committed = payouts
     .filter((payout) => payout.account_id === account.id && ["Requested", "Paid"].includes(payout.status))
     .reduce((sum, payout) => sum + num(payout.amount), 0);
   const balanceAfterPayouts = grossBalance - committed;
-  const safetyNetOk = safetyNet > 0 && balanceAfterPayouts >= safetyNet;
-  const available = safetyNet > 0
-    ? Math.max(0, Math.min(pnl - committed, balanceAfterPayouts - safetyNet))
-    : 0;
+  const safetyNetOk = balanceAfterPayouts >= protectedBalanceFloor;
+  const available = Math.max(0, Math.min(pnl - committed, balanceAfterPayouts - protectedBalanceFloor));
   const minPayoutOk = minimumPayoutAmount > 0 && num(requestAmount) >= minimumPayoutAmount;
-  const profitAboveSafetyOk = minimumProfitAboveSafetyNet > 0 && available >= minimumProfitAboveSafetyNet;
+  const profitAboveSafetyOk = minimumProfitAboveSafetyNet <= 0 || available >= minimumProfitAboveSafetyNet;
 
   const checks = [
     { key: "funded", label: "Funded account", passed: stageOk, detail: stageOk ? "Account is in funded stage" : "Payouts are only available on funded accounts" },
     { key: "status", label: "Account active / MLL clear", passed: activeOk, detail: failed ? "Account has failed its MLL" : activeOk ? "No MLL breach recorded" : "Account is not marked Active" },
-    { key: "profit", label: "Profit above Safety Net Threshold", passed: profitAboveSafetyOk, detail: "Available above safety net: $" + available.toFixed(2) + " / required $" + minimumProfitAboveSafetyNet.toFixed(2) },
+    { key: "profit", label: "Profit above Safety Net Threshold", passed: profitAboveSafetyOk, detail: minimumProfitAboveSafetyNet <= 0 ? "No extra profit buffer configured above the safety net" : "Available above safety net: $" + available.toFixed(2) + " / required $" + minimumProfitAboveSafetyNet.toFixed(2) },
     { key: "profitPositive", label: "Positive available profit", passed: available > 0, detail: available > 0 ? "Available to request: $" + available.toFixed(2) : "No uncommitted realized profit above the safety net" },
     { key: "days", label: "Minimum trading days", passed: minDaysOk, detail: minimumTradingDays > 0 ? days.length + " / " + minimumTradingDays + " distinct days" : "No minimum trading-day requirement configured" },
-    { key: "consistency", label: "Consistency rule", passed: consistencyOk, detail: consistencyCap > 0 && consistencyTarget > 0 ? "$" + Math.max(0, ...positiveDays).toFixed(2) + " best day / $" + consistencyTarget.toFixed(2) + " profit target = " + consistencyPct.toFixed(1) + "% (max " + consistencyCap + "%)" : "Set a profit target and consistency cap" },
-    { key: "safety", label: "Safety-net threshold", passed: safetyNetOk, detail: safetyNet > 0 ? "Balance after payouts $" + balanceAfterPayouts.toFixed(2) + " / threshold $" + safetyNet.toFixed(2) : "Set a Safety Net Threshold" },
+    { key: "consistency", label: "Consistency rule", passed: consistencyOk, detail: consistencyCap <= 0 ? "No consistency rule configured" : consistencyTarget > 0 ? "$" + Math.max(0, ...positiveDays).toFixed(2) + " best day / $" + consistencyTarget.toFixed(2) + " profit target = " + consistencyPct.toFixed(1) + "% (max " + consistencyCap + "%)" : "Set a profit target to calculate consistency" },
+    { key: "safety", label: "Starting balance + Safety-net threshold", passed: safetyNetOk, detail: safetyNetThreshold > 0 ? "Balance after payouts $" + balanceAfterPayouts.toFixed(2) + " / protected floor $" + protectedBalanceFloor.toFixed(2) + " (start $" + startingBalance.toFixed(2) + " + safety net $" + safetyNetThreshold.toFixed(2) + ")" : "No extra safety-net buffer configured; starting balance remains protected" },
     { key: "profitDays", label: "Minimum profitable days", passed: minProfitDaysOk, detail: minimumProfitableDays <= 0 ? "No minimum profitable-day requirement configured" : minimumProfitPerDay > 0 ? qualifyingProfitDays + " / " + minimumProfitableDays + " days with at least $" + minimumProfitPerDay.toFixed(2) + " profit (" + profitableDays + " green days total)" : "Set a minimum profit per day" },
     { key: "minPayout", label: "Minimum payout amount", passed: minPayoutOk, detail: minimumPayoutAmount > 0 ? "Request must be at least $" + minimumPayoutAmount.toFixed(2) : "Set a minimum payout amount" }
   ];
@@ -86,7 +98,7 @@ function evaluate(account, trades, payouts, requestAmount = 0) {
     eligible: checks.every((check) => check.passed),
     checks,
     available,
-    metrics: { pnl, grossBalance, balanceAfterPayouts, maxDrawdown, activeDays: days.length, bestDayShare: consistencyPct, consistencyTarget, safetyNet, committed, profitableDays, qualifyingProfitDays, minimumPayoutAmount, minimumProfitAboveSafetyNet }
+    metrics: { pnl, grossBalance, balanceAfterPayouts, maxDrawdown, minimumEquity, mllFloor, mllHit, activeDays: days.length, bestDayShare: consistencyPct, consistencyTarget, safetyNet: protectedBalanceFloor, safetyNetThreshold, protectedBalanceFloor, committed, profitableDays, qualifyingProfitDays, minimumPayoutAmount, minimumProfitAboveSafetyNet }
   };
 }
 
@@ -104,11 +116,11 @@ export default async function (req, res) {
 
     if (req.method === "POST") {
       const accountId = String(req.body?.accountId || "").trim();
-      const rawAmount = Number(req.body?.amount);
-      const amount = Math.round(rawAmount * 100) / 100;
+      const amountCents = toCents(req.body?.amount);
+      const amount = amountCents == null ? NaN : amountCents / 100;
       const note = String(req.body?.note || "").trim().slice(0, 500);
-      if (!accountId || !Number.isFinite(rawAmount) || !Number.isFinite(amount) || amount < 0.01 || amount > 999999999999.99) {
-        return res.status(400).json({ error: "Choose an account and enter a payout amount greater than zero." });
+      if (!accountId || accountId.length > 160 || !Number.isSafeInteger(amountCents) || amountCents < 1 || amountCents > 99999999999999) {
+        return res.status(400).json({ error: "Choose an account and enter a valid payout amount greater than zero, with at most two decimal places." });
       }
 
       const journalResult = await db.query("SELECT payload, updated_at FROM journal_data WHERE owner_id = $1", [ownerId]);
@@ -128,7 +140,7 @@ export default async function (req, res) {
       if (amount > result.available + 0.00001) {
         return res.status(400).json({ error: "Requested amount exceeds the available payout profit of $" + result.available.toFixed(2) + ".", eligibility: result });
       }
-      const protectedSafetyNet = num(account.safetyNetBalance);
+      const protectedSafetyNet = num(account.startingBalance) + num(account.safetyNetBalance);
       const balanceAfterRequest = result.metrics.balanceAfterPayouts - amount;
       if (protectedSafetyNet > 0 && balanceAfterRequest < protectedSafetyNet - 0.00001) {
         return res.status(400).json({ error: "This payout would use the protected safety-net threshold. Reduce the request amount.", eligibility: result });
@@ -179,11 +191,11 @@ export default async function (req, res) {
     }
 
     if (req.method === "DELETE") {
-      const archived = await db.query(
-        "UPDATE payout_requests SET archived_at = NOW(), updated_at = NOW() WHERE owner_id = $1 AND archived_at IS NULL AND status IN ('Paid', 'Cancelled') RETURNING id",
+      const deleted = await db.query(
+        "DELETE FROM payout_requests WHERE owner_id = $1 RETURNING id",
         [ownerId]
       );
-      return res.json({ archivedCount: archived.rows.length });
+      return res.json({ deletedCount: deleted.rows.length });
     }
 
     const id = Number(req.body?.id);
