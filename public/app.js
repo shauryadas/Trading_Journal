@@ -53,7 +53,12 @@ const normalizeJournalPayload = (value) => {
   return {
     ...source,
     accounts: records(source.accounts).map((item) => ({ ...item, id: item.id ?? uid() })),
-    trades: records(source.trades).map((item) => ({ ...item, id: item.id ?? uid(), media: records(item.media) })),
+    trades: records(source.trades).map((item) => ({
+      ...item,
+      id: item.id ?? uid(),
+      media: records(item.media),
+      preEntryMedia: records(item.preEntryMedia)
+    })),
     playbook: records(source.playbook).map((item) => ({ ...item, id: item.id ?? uid(), tags: Array.isArray(item.tags) ? item.tags : [] })),
     backtests: records(source.backtests).map((item) => ({ ...item, id: item.id ?? uid() }))
   };
@@ -113,8 +118,10 @@ function Icon({ name, size = 18 }) {
   return html`<svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d=${ICONS[name] || ICONS.overview} /></svg>`;
 }
 
-function Modal({ title, subtitle, onClose, children, wide = false }) {
+function Modal({ title, subtitle, onClose, children, wide = false, closeDisabled = false }) {
   const panelRef = useRef(null);
+  const closeDisabledRef = useRef(closeDisabled);
+  closeDisabledRef.current = closeDisabled;
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
@@ -122,7 +129,7 @@ function Modal({ title, subtitle, onClose, children, wide = false }) {
     const focusable = () => Array.from(panel.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter((node) => !node.hidden && node.getClientRects().length);
     (focusable()[0] || panel).focus();
     const onKeyDown = (event) => {
-      if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
+      if (event.key === "Escape") { event.preventDefault(); if (!closeDisabledRef.current) onClose(); return; }
       if (event.key !== "Tab") return;
       const items = focusable();
       if (!items.length) { event.preventDefault(); panel.focus(); return; }
@@ -165,8 +172,15 @@ function SectionHeading({ eyebrow, title, description, action }) {
   </div>`;
 }
 
-function ImageLightbox({ file, onClose }) {
+function ImageLightbox({ files = [], initialFile, mediaKeys = [], preEntryKeys = [], onClose }) {
+  const images = files.filter((item) => item?.url);
+  const safeImages = images.length ? images : (initialFile?.url ? [initialFile] : []);
+  const initialIndex = Math.max(0, safeImages.findIndex((item) => item.key === initialFile?.key));
+  const [activeIndex, setActiveIndex] = useState(initialIndex);
   const panelRef = useRef(null);
+  const file = safeImages[Math.min(activeIndex, Math.max(0, safeImages.length - 1))] || initialFile || {};
+  const previewTitle = preEntryKeys.includes(file.key) ? "Pre-Entry Chart Upload" : mediaKeys.includes(file.key) ? "Chart Upload" : "Trade Image";
+  const move = (step) => setActiveIndex((index) => (index + step + safeImages.length) % safeImages.length);
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
@@ -175,6 +189,8 @@ function ImageLightbox({ file, onClose }) {
     (closeButton || panel).focus();
     const onKeyDown = (event) => {
       if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
+      if (event.key === "ArrowLeft" && safeImages.length > 1) { event.preventDefault(); move(-1); return; }
+      if (event.key === "ArrowRight" && safeImages.length > 1) { event.preventDefault(); move(1); return; }
       if (event.key === "Tab") { event.preventDefault(); (panel.querySelector("button") || panel).focus(); }
     };
     panel.addEventListener("keydown", onKeyDown);
@@ -185,9 +201,13 @@ function ImageLightbox({ file, onClose }) {
   }, []);
   return html`<div className="media-lightbox" onMouseDown=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
     <section ref=${panelRef} tabIndex="-1" className="media-lightbox-panel" role="dialog" aria-modal="true" aria-label="Trade image preview">
-      <div className="media-lightbox-head"><strong>${file.name || "Trade image"}</strong><button type="button" className="icon-button" onClick=${onClose} aria-label="Close image preview"><${Icon} name="close" size=${18} /></button></div>
-      <img src=${file.url} alt=${file.name || "Trade image preview"} />
-      <div className="media-lightbox-foot">Click outside the image or press the close button to return to the trade log.</div>
+      <div className="media-lightbox-head"><strong>${previewTitle}</strong><span>${file.name || "Trade image"}</span><button type="button" className="icon-button" onClick=${onClose} aria-label="Close image preview"><${Icon} name="close" size=${18} /></button></div>
+      <div className="media-lightbox-stage">
+        ${safeImages.length > 1 ? html`<button type="button" className="media-slide-arrow" onClick=${() => move(-1)} aria-label="Previous image"><${Icon} name="chevron-left" size=${22} /></button>` : null}
+        <img src=${file.url} alt=${file.name || "Trade image preview"} />
+        ${safeImages.length > 1 ? html`<button type="button" className="media-slide-arrow" onClick=${() => move(1)} aria-label="Next image"><${Icon} name="chevron-right" size=${22} /></button>` : null}
+      </div>
+      <div className="media-lightbox-foot">${safeImages.length > 1 ? `Image ${activeIndex + 1} of ${safeImages.length} · Use arrows or ← → keys to navigate` : "Click outside the image or press the close button to return to the trade log."}</div>
     </section>
   </div>`;
 }
@@ -197,10 +217,10 @@ function TradeTable({ trades, accounts, onEdit, onDelete, compact = false }) {
   const rows = trades;
   const [previewImage, setPreviewImage] = useState(null);
   return html`<div className="table-scroll"><table className="data-table" aria-label="Trade history">
-    <thead><tr><th>Trade</th><th>Account</th><th>Date</th><th>Side</th><th>Outcome</th><th>Position Size</th><th>Net P&L</th><th>R</th><th>Media</th><th></th></tr></thead>
+    <thead><tr><th>Trade</th><th>Account</th><th>Date</th><th>Side</th><th>Outcome</th><th>Position Size</th><th>Move</th><th>Net P&L</th><th>R</th><th>Media</th><th></th></tr></thead>
     <tbody>
       ${rows.length ? rows.map((t) => {
-        const attachments = t.media || [];
+        const attachments = [...(Array.isArray(t.media) ? t.media : []), ...(Array.isArray(t.preEntryMedia) ? t.preEntryMedia : [])];
         const firstImage = attachments.find((file) => file.url);
         return html`<tr key=${t.id}>
         <td><div className="symbol-cell"><strong>${t.symbol}</strong><small>${t.market} · ${t.setup || "No setup"}</small><small className="trade-tags-line">${t.marketBias || "Neutral"} · ${String(t.emotionState || "calm").replace(/^./, (c) => c.toUpperCase())}</small></div></td>
@@ -208,16 +228,17 @@ function TradeTable({ trades, accounts, onEdit, onDelete, compact = false }) {
         <td className="muted-cell">${shortDate(t.date)}</td>
         <td><span className=${"side-pill " + (t.side === "Long" ? "long" : "short")}>${t.side}</span></td>
         <td><span className=${"outcome-pill " + ((t.outcome || (n(t.pnl) > 0 ? "Win" : n(t.pnl) < 0 ? "Loss" : "Break even")).toLowerCase().replace(/\s+/g, "-"))}>${t.outcome || (n(t.pnl) > 0 ? "Win" : n(t.pnl) < 0 ? "Loss" : "Break even")}</span></td>
-        <td className="muted-cell">${t.positionSize || "—"}</td>
+        <td className="muted-cell">${t.positionSize ? `${t.positionSize}${t.positionSizeUnit ? ` ${t.positionSizeUnit}` : ""}` : "—"}</td>
+        <td className="mono-cell">${t.moveValue !== undefined && t.moveValue !== null && t.moveValue !== "" ? `${t.moveValue} ${t.moveUnit || "points"}` : "—"}</td>
         <td className=${"mono-cell pnl-cell " + pnlClass(t.pnl)}>${signedMoney(t.pnl)}</td>
         <td className=${"mono-cell " + pnlClass(t.rMultiple)}>${n(t.rMultiple).toFixed(2)}R</td>
-        <td className="muted-cell">${firstImage ? html`<button type="button" className="trade-media-trigger" onClick=${() => setPreviewImage(firstImage)} title="Preview attached image"><img src=${firstImage.url} alt=${firstImage.name || "Trade attachment"} /><span>${attachments.length > 1 ? "+" + (attachments.length - 1) : "View"}</span></button>` : attachments.length ? attachments.length + " file(s)" : "—"}</td>
+        <td className="muted-cell">${firstImage ? html`<button type="button" className="trade-media-trigger" onClick=${() => setPreviewImage({ files: attachments, initialFile: firstImage, mediaKeys: (t.media || []).map((item) => item.key), preEntryKeys: (t.preEntryMedia || []).map((item) => item.key) })} title="Preview attached images"><img src=${firstImage.url} alt=${firstImage.name || "Trade attachment"} /><span>${attachments.length > 1 ? "+" + (attachments.length - 1) : "View"}</span></button>` : attachments.length ? attachments.length + " file(s)" : "—"}</td>
         <td><div className="row-actions"><button type="button" className="tiny-icon" onClick=${() => onEdit(t)} title="Edit" aria-label="Edit trade"><${Icon} name="edit" size=${14} /></button><button type="button" className="tiny-icon danger" onClick=${() => onDelete(t.id)} title="Delete" aria-label="Delete trade"><${Icon} name="trash" size=${14} /></button></div></td>
       </tr>`;
-      }) : html`<tr><td colSpan="10"><div className="empty-state small-empty"><strong>No trades found</strong><span>Add a closed trade or adjust your filters.</span></div></td></tr>`}
+      }) : html`<tr><td colSpan="11"><div className="empty-state small-empty"><strong>No trades found</strong><span>Add a closed trade or adjust your filters.</span></div></td></tr>`}
     </tbody>
   </table>
-  ${previewImage ? html`<${ImageLightbox} file=${previewImage} onClose=${() => setPreviewImage(null)} />` : null}
+  ${previewImage ? html`<${ImageLightbox} files=${previewImage.files} initialFile=${previewImage.initialFile} mediaKeys=${previewImage.mediaKeys || []} preEntryKeys=${previewImage.preEntryKeys || []} onClose=${() => setPreviewImage(null)} />` : null}
   </div>`;
 }
 
@@ -243,7 +264,7 @@ function EquityChart({ series, currency = "USD" }) {
     <div className="chart-legend"><span><i></i> Portfolio equity</span><strong className="chart-current-value">${money(series[series.length - 1]?.value || 0, currency)}</strong><span className="chart-range">${series.some((point) => !point.start) ? shortDate(series.find((point) => !point.start)?.date) + " — " + shortDate(series[series.length - 1]?.date) : "No closed trades yet"}</span></div>
     <svg className="equity-svg" viewBox=${"0 0 " + W + " " + H} role="img" aria-label="Portfolio equity by trading day">
       ${ticks.map((value) => html`<g><line x1=${L} x2=${W - R} y1=${y(value)} y2=${y(value)} stroke="#263442" strokeWidth="1" /><text x=${L - 12} y=${y(value) + 4} textAnchor="end" fill="#9aa8b8" fontSize="12" fontFamily="inherit">${money(value, currency)}</text></g>`)}
-      ${points.map((point, index) => { const barWidth = Math.max(4, Math.min(28, plotWidth / Math.max(1, points.length) * 0.62)); const barTop = Math.min(point.y, H - B); const barHeight = Math.max(2, H - B - barTop); return html`<rect x=${point.x - barWidth / 2} y=${barTop} width=${barWidth} height=${barHeight} rx="3" fill="#66ff99" opacity=${hovered?.index === index ? 1 : 0.78} onMouseEnter=${() => setHovered({ ...point, index })} onMouseLeave=${() => setHovered(null)} style=${{ cursor: "crosshair" }} />`; })}
+      ${points.map((point, index) => { const barWidth = Math.max(2, Math.min(12, plotWidth / Math.max(1, points.length) * 0.28)); const barTop = Math.min(point.y, H - B); const barHeight = Math.max(2, H - B - barTop); return html`<rect x=${point.x - barWidth / 2} y=${barTop} width=${barWidth} height=${barHeight} rx="3" fill="#66ff99" opacity=${hovered?.index === index ? 1 : 0.78} onMouseEnter=${() => setHovered({ ...point, index })} onMouseLeave=${() => setHovered(null)} style=${{ cursor: "crosshair" }} />`; })}
       ${labelPoints.map((point, index) => html`<text x=${point.x} y=${H - 13} textAnchor=${index === 0 ? "start" : index === 2 ? "end" : "middle"} fill="#8b9aaa" fontSize="12" fontFamily="inherit">${dateLabel(point)}</text>`)}
       ${active ? html`<g pointerEvents="none"><line x1=${active.x} x2=${active.x} y1=${T} y2=${H - B} stroke="#9aa8b8" strokeDasharray="3 4" opacity=".7" /><circle cx=${active.x} cy=${active.y} r="4" fill="#66ff99" stroke="#0c151e" strokeWidth="2" /><g transform=${`translate(${Math.max(L, Math.min(W - 206, active.x + 12))} ${Math.max(T, active.y - 58)})`}><rect width="194" height="50" rx="7" fill="#101a25" stroke="#4b6478" /><text x="11" y="19" fill="#b9c7d5" fontSize="11">${active.start ? "Starting balance" : fullDate(active.date)}</text><text x="11" y="39" fill="#66ff99" fontSize="15" fontWeight="700">${money(active.value, currency)}</text></g></g>` : null}
     </svg>
@@ -305,7 +326,7 @@ function AccountHealthStrip({ accountBreakdown }) {
         const lossWidth = Math.max(0, startPosition - currentPosition);
         const profitWidth = Math.max(0, currentPosition - startPosition);
         const stage = account.accountStage || "Eval";
-        const status = (n(account.maxDrawdown) > 0 && stats.maxDD >= n(account.maxDrawdown)) || String(account.accountStatus || "").toLowerCase() === "failed" ? "Failed" : (account.accountStatus || "Active");
+        const status = stats.mllHit || String(account.accountStatus || "").toLowerCase() === "failed" ? "Failed" : (account.accountStatus || "Active");
         return html`<article className="account-health-card account-range-card" key=${account.id}>
           <div className="account-health-heading"><div><strong>${account.name}</strong><span>${account.firm} · ${account.accountType || (account.firm === "FTMO" ? "Forex" : "Futures")}</span></div><div className="account-tag-row"><span className="account-stage-tag">${stage}</span><span className=${"account-status-tag " + status.toLowerCase()}>${status}</span></div></div>
           <div className="account-range-section">
@@ -344,13 +365,14 @@ function accountMetrics(account, trades) {
   const riskValues = trades
     .filter((trade) => Number(trade.riskAmount) > 0 && Number.isFinite(Number(trade.rMultiple)))
     .map((trade) => Number(trade.rMultiple));
-  let equity = n(account?.startingBalance), peak = equity, maxDD = 0;
+  let equity = n(account?.startingBalance), peak = equity, maxDD = 0, minEquity = equity;
   trades
     .map((trade, index) => ({ trade, index }))
     .sort((a, b) => compareTradesChronologically(a.trade, b.trade, a.index, b.index))
     .forEach(({ trade }) => {
       equity += n(trade.pnl);
       peak = Math.max(peak, equity);
+      minEquity = Math.min(minEquity, equity);
       maxDD = Math.max(maxDD, peak - equity);
     });
   const todayPnl = trades.filter((t) => t.date === todayISO()).reduce((s, t) => s + n(t.pnl), 0);
@@ -362,7 +384,7 @@ function accountMetrics(account, trades) {
     avgLoss: losers.length ? grossLoss / losers.length : 0,
     consistency: n(account?.profitTarget) > 0 ? bestDay / n(account.profitTarget) * 100 : 0,
     positiveDays, activeDays: activeDays.length, bestDayShare: n(account?.profitTarget) > 0 ? bestDay / n(account.profitTarget) * 100 : 0,
-    bestDay, maxDD, maxDDPct: n(account?.startingBalance) ? maxDD / n(account.startingBalance) * 100 : 0,
+    bestDay, maxDD, minEquity, mllHit: n(account?.maxDrawdown) > 0 && minEquity <= n(account.startingBalance) - n(account.maxDrawdown), maxDDPct: n(account?.startingBalance) ? maxDD / n(account.startingBalance) * 100 : 0,
     todayPnl
   };
 }
@@ -372,7 +394,7 @@ function isAccountFailed(account, trades) {
   if (String(account.accountStatus || "").toLowerCase() === "failed") return true;
   const limit = n(account.maxDrawdown);
   if (limit <= 0) return false;
-  return accountMetrics(account, trades.filter((trade) => trade.accountId === account.id)).maxDD >= limit;
+  return accountMetrics(account, trades.filter((trade) => trade.accountId === account.id)).mllHit;
 }
 
 function payoutEligibility(account, trades, payouts, requestAmount = 0) {
@@ -381,7 +403,8 @@ function payoutEligibility(account, trades, payouts, requestAmount = 0) {
   const stats = accountMetrics(account, accountTrades);
   const startingBalance = n(account.startingBalance);
   const grossBalance = startingBalance + stats.pnl;
-  const safetyNet = n(account.safetyNetBalance);
+  const safetyNetThreshold = n(account.safetyNetBalance);
+  const protectedBalanceFloor = startingBalance + safetyNetThreshold;
   const minimumDays = n(account.minimumTradingDays);
   const consistencyCap = n(account.consistencyCap);
   const minimumProfitableDays = n(account.minimumProfitableDays);
@@ -389,12 +412,12 @@ function payoutEligibility(account, trades, payouts, requestAmount = 0) {
   const minimumPayoutAmount = n(account.minimumPayoutAmount);
   const minimumProfitAboveSafetyNet = n(account.minimumProfitAboveSafetyNet ?? 500);
   const failed = isAccountFailed(account, trades);
-  const stageOk = String(account.accountStage || "").toLowerCase() === "funded";
+  const stageOk = (["funded", "instant"].includes(String(account.accountStage || "").toLowerCase()));
   const activeOk = !failed && String(account.accountStatus || "Active").toLowerCase() === "active";
   const minDaysOk = minimumDays <= 0 || stats.activeDays >= minimumDays;
   const consistencyTarget = n(account.profitTarget);
   const consistencyPct = consistencyTarget > 0 ? stats.bestDay / consistencyTarget * 100 : 0;
-  const consistencyOk = consistencyCap > 0 && consistencyTarget > 0 && consistencyPct <= consistencyCap;
+  const consistencyOk = consistencyCap <= 0 || (consistencyTarget > 0 && consistencyPct <= consistencyCap);
   const byDay = Object.create(null);
   accountTrades.forEach((trade) => { const day = String(trade.date || ""); if (day) byDay[day] = (byDay[day] || 0) + n(trade.pnl); });
   const profitableDays = Object.values(byDay).filter((value) => value > 0).length;
@@ -402,23 +425,23 @@ function payoutEligibility(account, trades, payouts, requestAmount = 0) {
   const minProfitDaysOk = minimumProfitableDays <= 0 || (minimumProfitPerDay > 0 && qualifyingProfitDays >= minimumProfitableDays);
   const committed = payouts.filter((payout) => payout.account_id === account.id && ["Requested", "Paid"].includes(payout.status)).reduce((sum, payout) => sum + n(payout.amount), 0);
   const balanceAfterPayouts = grossBalance - committed;
-  const safetyNetOk = safetyNet > 0 && balanceAfterPayouts >= safetyNet;
-  const profitAboveSafety = safetyNet > 0 ? Math.max(0, Math.min(stats.pnl - committed, balanceAfterPayouts - safetyNet)) : 0;
+  const safetyNetOk = balanceAfterPayouts >= protectedBalanceFloor;
+  const profitAboveSafety = Math.max(0, Math.min(stats.pnl - committed, balanceAfterPayouts - protectedBalanceFloor));
   const available = Math.max(0, profitAboveSafety);
   const minPayoutOk = minimumPayoutAmount > 0 && n(requestAmount) >= minimumPayoutAmount;
-  const profitAboveSafetyOk = minimumProfitAboveSafetyNet > 0 && available >= minimumProfitAboveSafetyNet;
+  const profitAboveSafetyOk = minimumProfitAboveSafetyNet <= 0 || available >= minimumProfitAboveSafetyNet;
   const checks = [
     { key: "funded", label: "Funded account", passed: stageOk, detail: stageOk ? "Account is in funded stage" : "Payouts are only available on funded accounts" },
     { key: "status", label: "Account active / MLL clear", passed: activeOk, detail: failed ? "Account has failed its MLL" : activeOk ? "No MLL breach recorded" : "Account is not marked Active" },
-    { key: "profit", label: "Profit above Safety Net Threshold", passed: profitAboveSafetyOk, detail: "Available above safety net: " + money(available) + " / required " + money(minimumProfitAboveSafetyNet) },
+    { key: "profit", label: "Profit above Safety Net Threshold", passed: profitAboveSafetyOk, detail: minimumProfitAboveSafetyNet <= 0 ? "No extra profit buffer configured above the safety net" : "Available above safety net: " + money(available) + " / required " + money(minimumProfitAboveSafetyNet) },
     { key: "profitPositive", label: "Positive available profit", passed: available > 0, detail: available > 0 ? "Available to request: " + money(available) : "No uncommitted realized profit available" },
     { key: "days", label: "Minimum trading days", passed: minDaysOk, detail: minimumDays > 0 ? stats.activeDays + " / " + minimumDays + " distinct days" : "No minimum trading-day requirement configured" },
-    { key: "consistency", label: "Consistency rule", passed: consistencyOk, detail: consistencyCap > 0 && consistencyTarget > 0 ? money(stats.bestDay) + " best day / " + money(consistencyTarget) + " profit target = " + consistencyPct.toFixed(1) + "% (max " + consistencyCap + "%)" : "Set a profit target and consistency cap" },
-    { key: "safety", label: "Safety-net threshold", passed: safetyNetOk, detail: safetyNet > 0 ? "Protected balance floor: " + money(safetyNet) + " · balance after payouts: " + money(balanceAfterPayouts) : "Set a Safety Net Threshold" },
+    { key: "consistency", label: "Consistency rule", passed: consistencyOk, detail: consistencyCap <= 0 ? "No consistency rule configured" : consistencyTarget > 0 ? money(stats.bestDay) + " best day / " + money(consistencyTarget) + " profit target = " + consistencyPct.toFixed(1) + "% (max " + consistencyCap + "%)" : "Set a profit target to calculate consistency" },
+    { key: "safety", label: "Starting balance + Safety-net threshold", passed: safetyNetOk, detail: safetyNetThreshold > 0 ? "Protected floor: " + money(protectedBalanceFloor) + " (start " + money(startingBalance) + " + safety net " + money(safetyNetThreshold) + ") · balance after payouts: " + money(balanceAfterPayouts) : "No extra safety-net buffer configured; starting balance remains protected" },
     { key: "profitDays", label: "Minimum profitable days", passed: minProfitDaysOk, detail: minimumProfitableDays <= 0 ? "No minimum profitable-day requirement configured" : minimumProfitPerDay > 0 ? qualifyingProfitDays + " / " + minimumProfitableDays + " days with at least " + money(minimumProfitPerDay) + " profit (" + profitableDays + " green days total)" : "Set a minimum profit per day" },
     { key: "minPayout", label: "Minimum payout amount", passed: minPayoutOk, detail: minimumPayoutAmount > 0 ? "Request must be at least " + money(minimumPayoutAmount) : "Set a minimum payout amount" }
   ];
-  return { eligible: checks.every((check) => check.passed), checks, available, metrics: { pnl: stats.pnl, balance: grossBalance, balanceAfterPayouts, maxDrawdown: stats.maxDD, activeDays: stats.activeDays, bestDayShare: stats.bestDayShare, safetyNet, committed, profitableDays, qualifyingProfitDays } };
+  return { eligible: checks.every((check) => check.passed), checks, available, metrics: { pnl: stats.pnl, balance: grossBalance, balanceAfterPayouts, maxDrawdown: stats.maxDD, activeDays: stats.activeDays, bestDayShare: stats.bestDayShare, safetyNet: protectedBalanceFloor, safetyNetThreshold, protectedBalanceFloor, committed, profitableDays, qualifyingProfitDays } };
 }
 
 function buildEquitySeries(accounts, trades) {
@@ -436,25 +459,42 @@ function buildEquitySeries(accounts, trades) {
   return series;
 }
 
-function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave }) {
+function TradeModal({ trade, accounts, trades, playbook, initialAccountId, onClose, onSave }) {
   const firstEligibleAccount = accounts.find((account) => !isAccountFailed(account, trades));
   const preferredAccountId = initialAccountId || firstEligibleAccount?.id || accounts[0]?.id || "";
   const [form, setForm] = useState(() => ({
     accountId: trade?.accountId || preferredAccountId,
     symbol: trade?.symbol || "", market: trade?.market || "Futures", side: trade?.side || "Long",
     date: trade?.date || todayISO(), pnl: trade?.pnl ?? "", riskAmount: trade?.riskAmount ?? "",
-    outcome: trade?.outcome || (trade ? (n(trade.pnl) > 0 ? "Win" : n(trade.pnl) < 0 ? "Loss" : "Break even") : ""),
-    setup: trade?.setup || "", notes: trade?.notes || "",
+    outcome: trade ? (n(trade.pnl) < 0 ? "Loss" : n(trade.pnl) > 0 ? "Win" : "Break even") : "",
+    orderType: trade?.orderType || "Market", timeframe: trade?.timeframe || "5m", tradingStyle: trade?.tradingStyle || "Intraday", session: trade?.session || "New York",
+    setup: trade?.setup || "", notes: trade?.notes || "", news: trade?.news || "",
     marketBias: trade?.marketBias || "Neutral",
-    emotionState: trade?.emotionState || "calm",
-    positionSize: trade?.positionSize || ""
+    emotionState: trade?.emotionState || "calm", confluence: trade?.confluence || "",
+    positionSize: trade?.positionSize || "", positionSizeUnit: trade?.positionSizeUnit || "",
+    moveValue: trade?.moveValue ?? "", moveUnit: trade?.moveUnit || "points"
   }));
+  const selectedAccountType = String(accounts.find((a) => a.id === form.accountId)?.accountType || "Futures").toLowerCase();
+  const positionSizeUnitOptions = selectedAccountType === "futures" || selectedAccountType === "crypto futures" ? ["Mini", "Micro"] : selectedAccountType === "forex" || selectedAccountType === "crypto" ? ["Standard Lots", "Mini Lots", "Micro Lots"] : ["Mini", "Micro"];
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date((trade?.date || todayISO()) + "T12:00:00"));
+  const calendarYear = calendarMonth.getFullYear();
+  const calendarMonthIndex = calendarMonth.getMonth();
+  const calendarDays = new Date(calendarYear, calendarMonthIndex + 1, 0).getDate();
+  const calendarStartDay = new Date(calendarYear, calendarMonthIndex, 1).getDay();
+  const calendarMonthLabel = calendarMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const calendarWeekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const [media, setMedia] = useState(() => trade?.media || []);
+  const [preEntryMedia, setPreEntryMedia] = useState(() => trade?.preEntryMedia || []);
   const [previewImage, setPreviewImage] = useState(null);
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [selectedPreEntryFiles, setSelectedPreEntryFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const uploadingRef = useRef(false);
+  uploadingRef.current = uploading;
   const [mediaError, setMediaError] = useState("");
   const fileInputRef = useRef(null);
+  const preEntryFileInputRef = useRef(null);
   const newlyUploaded = useRef([]);
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const preview = n(form.pnl), risk = n(form.riskAmount), r = risk ? preview / risk : 0;
@@ -473,52 +513,70 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
         image.src = objectUrl;
       });
     } catch { throw new Error("This image format could not be opened. Please save it as JPG or PNG and try again."); }
-    const scale = Math.min(1, 1920 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    const context = canvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("Your browser could not prepare this image.");
-    context.fillStyle = "#ffffff"; context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    if (typeof bitmap.close === "function") bitmap.close();
-    let blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.82));
-    if (!blob) throw new Error("Could not compress this image. Please try another file.");
-    if (blob.size > 2 * 1024 * 1024) {
-      const smaller = document.createElement("canvas");
-      smaller.width = Math.max(1, Math.round(canvas.width * 0.78));
-      smaller.height = Math.max(1, Math.round(canvas.height * 0.78));
-      const smallerContext = smaller.getContext("2d", { alpha: false });
-      smallerContext.fillStyle = "#ffffff"; smallerContext.fillRect(0, 0, smaller.width, smaller.height);
-      smallerContext.drawImage(canvas, 0, 0, smaller.width, smaller.height);
-      blob = await new Promise(resolve => smaller.toBlob(resolve, "image/jpeg", 0.72));
+    let blob = null;
+    let scale = Math.min(1, 1920 / Math.max(bitmap.width, bitmap.height));
+    try {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) throw new Error("Your browser could not prepare this image.");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        const quality = [0.84, 0.76, 0.68, 0.60, 0.52, 0.44][attempt];
+        blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", quality));
+        if (!blob) throw new Error("Could not compress this image. Please try another file.");
+        if (blob.size <= 1.8 * 1024 * 1024) break;
+        scale *= 0.78;
+      }
+    } finally {
+      if (typeof bitmap.close === "function") bitmap.close();
     }
-    if (!blob || blob.size > 2 * 1024 * 1024) throw new Error("This image is still too large after compression. Try a smaller screenshot.");
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(new Error("Could not read the compressed image.")); reader.readAsDataURL(blob);
-    });
-    return { base64: dataUrl.split(",")[1], filename: (file.name || "trade-image").replace(/\.[^.]+$/, "") + ".jpg" };
+    if (!blob || blob.size > 1.8 * 1024 * 1024) throw new Error("This image is too detailed to compress safely. Try a smaller screenshot.");
+    return { blob, filename: (file.name || "trade-image").replace(/\.[^.]+$/, "") + ".jpg" };
   };
   const uploadFile = async (file) => {
     const prepared = await prepareTradeImage(file);
-    const response = await fetch("/api/trade-media", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...prepared, contentType: "image/jpeg" }) });
+    const body = new FormData();
+    body.append("file", prepared.blob, prepared.filename);
+    const response = await fetch("/api/trade-media", { method: "POST", credentials: "same-origin", body });
     let result = {}; try { result = await response.json(); } catch {}
     if (response.status === 401 || result.error === "login_required") {
       location.assign("/login?next=" + encodeURIComponent(location.pathname + location.search));
       throw new Error("Please sign in to upload trade images.");
     }
-    if (!response.ok) throw new Error(result.error || "Image upload failed. Please try again.");
+    if (!response.ok) throw new Error(result.message || result.error || "Image upload failed. Please try again.");
+    if (typeof result.key !== "string" || !result.key || typeof result.url !== "string" || !result.url) {
+      throw new Error("The server did not confirm that this image was stored. Please try again.");
+    }
     return result;
   };
-  const uploadSelected = async () => {
-    const uploaded = [];
-    for (const file of selectedFiles) {
-      const result = await uploadFile(file);
-      uploaded.push({ key: result.key, name: result.name, contentType: result.contentType, bytes: result.bytes, url: result.url });
-      newlyUploaded.current.push(result.key);
-    }
-    return uploaded;
+  const uploadSelectedGroups = async (regularFiles, preEntryFiles) => {
+    // Start every selected chart upload in one shared batch so both sections
+    // upload concurrently and the trade is saved only after all files finish.
+    const tasks = [
+      ...regularFiles.map((file) => ({ file, group: "regular" })),
+      ...preEntryFiles.map((file) => ({ file, group: "preEntry" }))
+    ];
+    const results = await Promise.allSettled(tasks.map(({ file }) => uploadFile(file)));
+    const uploadedRegular = [];
+    const uploadedPreEntry = [];
+    const failures = [];
+    results.forEach((result, index) => {
+      const task = tasks[index];
+      if (result.status === "fulfilled") {
+        const file = result.value;
+        const attachment = { key: file.key, name: file.name, contentType: file.contentType, bytes: file.bytes, url: file.url };
+        (task.group === "regular" ? uploadedRegular : uploadedPreEntry).push(attachment);
+        newlyUploaded.current.push(file.key);
+      } else {
+        failures.push((task.file?.name || "Image") + ": " + (result.reason?.message || "Upload failed."));
+      }
+    });
+    if (failures.length) throw new Error(failures.join(" "));
+    return { uploadedRegular, uploadedPreEntry };
   };
   const cleanupNewUploads = async () => {
     await Promise.all(newlyUploaded.current.map((key) => fetch("/api/trade-media", {
@@ -526,7 +584,11 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
     }).catch(() => null)));
     newlyUploaded.current = [];
   };
-  const close = async () => { await cleanupNewUploads(); onClose(); };
+  const close = async () => {
+    if (uploadingRef.current) return;
+    await cleanupNewUploads();
+    onClose();
+  };
   const submit = async (e) => {
     e.preventDefault();
     if (blockNewEntry) { setMediaError("This account has failed its Maximum Loss Limit (MLL). New trade entries are locked."); return; }
@@ -534,18 +596,21 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
     setUploading(true); setMediaError("");
     let uploaded = [];
     try {
-      uploaded = await uploadSelected();
+      const { uploadedRegular, uploadedPreEntry } = await uploadSelectedGroups(selectedFiles, selectedPreEntryFiles);
+      uploaded = [...uploadedRegular, ...uploadedPreEntry];
       const item = {
         id: trade?.id || uid(), accountId: form.accountId, symbol: form.symbol.trim(),
         market: form.market, side: form.side, date: form.date, setup: form.setup.trim(),
-        marketBias: form.marketBias, emotionState: form.emotionState, positionSize: form.positionSize.trim(),
-        outcome: form.outcome, notes: form.notes, pnl: n(form.pnl), riskAmount: n(form.riskAmount),
+        marketBias: form.marketBias, emotionState: form.emotionState, confluence: form.confluence, orderType: form.orderType, timeframe: form.timeframe, tradingStyle: form.tradingStyle, session: form.session, positionSize: form.positionSize.trim(), positionSizeUnit: form.positionSizeUnit,
+        moveValue: form.moveValue === "" ? null : n(form.moveValue), moveUnit: form.moveUnit,
+        outcome: n(form.pnl) < 0 ? "Loss" : n(form.pnl) > 0 ? "Win" : "Break even", notes: form.notes, news: form.news, pnl: n(form.pnl), riskAmount: n(form.riskAmount),
         rMultiple: n(form.riskAmount) > 0 ? n(form.pnl) / n(form.riskAmount) : 0,
         createdAt: trade?.createdAt || new Date().toISOString(),
-        media: [...media, ...uploaded]
+        media: [...media, ...uploaded],
+        preEntryMedia: [...preEntryMedia, ...uploadedPreEntry]
       };
-      const keptKeys = new Set(item.media.map((file) => file.key));
-      const removed = (trade?.media || []).filter((file) => file.key && !keptKeys.has(file.key));
+      const keptKeys = new Set([...item.media, ...item.preEntryMedia].map((file) => file.key));
+      const removed = [...(trade?.media || []), ...(trade?.preEntryMedia || [])].filter((file) => file.key && !keptKeys.has(file.key));
       newlyUploaded.current = [];
       onSave(item);
       removed.forEach((file) => fetch("/api/trade-media", {
@@ -565,39 +630,43 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
         <${Field} label="Account"><select required value=${form.accountId} onChange=${(e) => set("accountId", e.target.value)}>${accounts.map((a) => html`<option value=${a.id} disabled=${isAccountFailed(a, trades)}>${a.name}${isAccountFailed(a, trades) ? " — FAILED" : ""}</option>`)}</select></${Field}>
       </div>
       <fieldset disabled=${blockNewEntry} style=${{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-      <div className="form-grid three">
+      <div className="form-grid four trade-context-grid">
         <${Field} label="Instrument"><input required value=${form.symbol} onChange=${(e) => set("symbol", e.target.value.toUpperCase())} placeholder="e.g. NQ, EURUSD" /></${Field}>
-        <${Field} label="Market"><select value=${form.market} onChange=${(e) => set("market", e.target.value)}><option>Futures</option><option>Forex</option><option>Stocks</option><option>Crypto</option><option>Options</option></select></${Field}>
-        <${Field} label="Trade date"><input type="date" required value=${form.date} onChange=${(e) => set("date", e.target.value)} /></${Field}>
+        <${Field} label="Position Size"><div className="trade-position-size"><input type="number" min="0" step="any" value=${form.positionSize} onChange=${(e) => set("positionSize", e.target.value)} placeholder="Enter size" /><select aria-label="Position Size unit" value=${form.positionSizeUnit} onChange=${(e) => set("positionSizeUnit", e.target.value)}><option value="">Unit</option>${positionSizeUnitOptions.map((unit) => html`<option value=${unit}>${unit}</option>`)}</select></div></${Field}>
         <${Field} label="Direction"><select value=${form.side} onChange=${(e) => set("side", e.target.value)}><option>Long</option><option>Short</option></select></${Field}>
-        <${Field} label="Setup"><input value=${form.setup} onChange=${(e) => set("setup", e.target.value)} placeholder="Playbook setup" /></${Field}>
-      </div>
-      <div className="form-grid three trade-context-grid">
+        <${Field} label="Timeframe"><select value=${form.timeframe} onChange=${(e) => set("timeframe", e.target.value)}><option value="10s">10s</option><option value="15s">15s</option><option value="30s">30s</option><option value="1m">1m</option><option value="3m">3m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="D">D</option><option value="W">W</option><option value="M">M</option></select></${Field}>
+        <${Field} label="Order Type"><select value=${form.orderType} onChange=${(e) => set("orderType", e.target.value)}><option value="Market">Market</option><option value="Limit">Limit</option><option value="Stop">Stop order</option></select></${Field}>
+        <${Field} label="Session"><select value=${form.session} onChange=${(e) => set("session", e.target.value)}><option value="Asia">Asia</option><option value="London">London</option><option value="New York">New York</option><option value="Off session">Off session</option></select></${Field}>
         <${Field} label="Market Bias"><select value=${form.marketBias} onChange=${(e) => set("marketBias", e.target.value)}><option>Bullish</option><option>Bearish</option><option>Neutral</option></select></${Field}>
         <${Field} label="Emotion State"><select value=${form.emotionState} onChange=${(e) => set("emotionState", e.target.value)}><option value="calm">Calm</option><option value="focused">Focused</option><option value="confident">Confident</option><option value="anxious">Anxious</option><option value="frustrated">Frustrated</option><option value="discipline">Discipline</option></select></${Field}>
-        <${Field} label="Position Size" hint="Enter your actual size, e.g. 2 contracts, 3 micros or 1.5 lots."><input type="text" maxlength="60" value=${form.positionSize} onChange=${(e) => set("positionSize", e.target.value)} placeholder="e.g. 2 contracts or 1.5 lots" /></${Field}>
+        <${Field} label="Trading Style"><select value=${form.tradingStyle} onChange=${(e) => set("tradingStyle", e.target.value)}><option value="Scalp">Scalp</option><option value="Intraday">Intraday</option><option value="Swing">Swing</option></select></${Field}>
+        <${Field} label="Trade date"><div className="trade-date-picker"><button type="button" className="trade-date-trigger" aria-haspopup="dialog" aria-expanded=${calendarOpen} onClick=${() => { setCalendarMonth(new Date((form.date || todayISO()) + "T12:00:00")); setCalendarOpen((open) => !open); }}><span>${form.date ? fullDate(form.date) : "Select trade date"}</span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></button>${calendarOpen ? html`<div className="trade-calendar-popover" role="dialog" aria-label="Choose trade date"><div className="trade-calendar-head"><button type="button" aria-label="Previous month" onClick=${() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex - 1, 1))}>‹</button><strong>${calendarMonthLabel}</strong><button type="button" aria-label="Next month" onClick=${() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex + 1, 1))}>›</button></div><div className="trade-calendar-grid">${calendarWeekdays.map((day) => html`<span className="trade-calendar-weekday">${day}</span>`)}${Array.from({ length: calendarStartDay }, (_, i) => html`<span className="trade-calendar-empty" key=${"blank-" + i}></span>`)}${Array.from({ length: calendarDays }, (_, i) => { const day = i + 1; const iso = `${calendarYear}-${String(calendarMonthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; return html`<button type="button" className=${"trade-calendar-day" + (form.date === iso ? " selected" : "")} onClick=${() => { set("date", iso); setCalendarOpen(false); }}>${day}</button>`; })}</div><div className="trade-calendar-foot"><button type="button" onClick=${() => { set("date", todayISO()); setCalendarMonth(new Date()); setCalendarOpen(false); }}>Today</button><button type="button" onClick=${() => setCalendarOpen(false)}>Close</button></div></div>` : null}</div></${Field}>
+        <${Field} label="Captured movement"><div className="trade-position-size"><input type="number" step="any" value=${form.moveValue} onChange=${(e) => set("moveValue", e.target.value)} placeholder="e.g. 12.5" /><select aria-label="Movement unit" value=${form.moveUnit} onChange=${(e) => set("moveUnit", e.target.value)}><option value="ticks">Ticks</option><option value="pips">Pips</option><option value="points">Points</option></select></div></${Field}>
+      <${Field} label="Confluence"><select value=${form.confluence} onChange={(e) => set("confluence", e.target.value)}><option value="">Select confluence</option><option>Order Block</option><option>FVG</option><option>IFVG</option><option>Liquidity Sweep</option><option>FVG&OB Rejection</option></select></${Field}>
       </div>
       <div className="form-divider"><span>Trade result</span></div>
-      <div className="form-grid two">
-        <${Field} label="Net P&L ($)"><input required type="number" step="any" value=${form.pnl} onChange=${(e) => set("pnl", e.target.value)} placeholder="e.g. 250 or -120" /></${Field}>
-        <${Field} label="Outcome"><select required value=${form.outcome} onChange=${(e) => set("outcome", e.target.value)}><option value="">Select outcome</option><option>Win</option><option>Loss</option><option>Break even</option></select></${Field}>
+      <div className="form-grid four trade-result-grid">
         <${Field} label="Risk amount ($, optional)"><input type="number" min="0" step="any" value=${form.riskAmount} onChange=${(e) => set("riskAmount", e.target.value)} placeholder="Planned dollar risk" /></${Field}>
+        <${Field} label="Net P&L ($)"><input required type="number" step="any" value=${form.pnl} onChange=${(e) => { const value = e.target.value; setForm((f) => ({ ...f, pnl: value, outcome: value === "" ? "" : Number(value) < 0 ? "Loss" : Number(value) > 0 ? "Win" : "Break even" })); }} placeholder="e.g. 250 or -120" /></${Field}>
+        <${Field} label="Outcome"><select required value=${form.outcome} disabled><option value="">Select outcome</option><option>Win</option><option>Loss</option><option>Break even</option></select><small>Calculated automatically from net P&amp;L.</small></${Field}>
+        <${Field} label="Setup"><select value=${form.setup} onChange=${(e) => set("setup", e.target.value)}><option value="">Select a setup from Process Library</option>${(playbook || []).map((item) => html`<option value=${item.name}>${item.name}</option>`)}${form.setup && !(playbook || []).some((item) => item.name === form.setup) ? html`<option value=${form.setup}>${form.setup} (saved trade)</option>` : null}</select></${Field}>
       </div>
       <div className="pnl-preview">
         <div><span>Net P&L</span><strong className=${pnlClass(preview)}>${signedMoney(preview)}</strong></div>
         <div><span>Risk amount</span><strong>${money(risk)}</strong></div>
         <div><span>R-multiple</span><strong className=${pnlClass(r)}>${r.toFixed(2)}R</strong></div>
       </div>
+      ${null}
       <${Field} label="Trade notes"><textarea rows="3" value=${form.notes} onChange=${(e) => set("notes", e.target.value)} placeholder="Execution quality, emotions, lessons learned…" /></${Field}>
       <div className="media-upload-block">
         <div className="media-upload-head">
-          <div><strong>Trade media</strong><small>Attach JPG, PNG, WEBP or GIF screenshots. Images are compressed automatically (20 MB max before compression).</small></div>
+          <div><strong>Chart Upload</strong><small>Attach JPG, PNG, WEBP or GIF screenshots. Images are compressed automatically (20 MB max before compression).</small></div>
           <input ref=${fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden-input" onChange=${(e) => { setSelectedFiles((files) => [...files, ...Array.from(e.target.files || [])]); e.target.value = ""; setMediaError(""); }} />
           <button type="button" className="btn btn-secondary" onClick=${() => fileInputRef.current?.click()}><${Icon} name="upload" size=${15} /> Add media</button>
         </div>
         <div className="media-attachment-grid">
           ${media.map((file) => html`<div className="media-attachment" key=${file.key}>
-            ${file.url ? html`<button type="button" className="media-preview-trigger" onClick=${() => setPreviewImage(file)} title="Click to preview image"><img src=${file.url} alt=${file.name || "Trade attachment"} /><span>Click to preview</span></button>` : html`<div className="media-placeholder"><${Icon} name="upload" size=${18} /></div>`}
+            ${file.url ? html`<button type="button" className="media-preview-trigger" onClick=${() => setPreviewImage({ files: [...media, ...preEntryMedia], initialFile: file, mediaKeys: media.map((item) => item.key), preEntryKeys: preEntryMedia.map((item) => item.key) })} title="Click to preview images"><img src=${file.url} alt=${file.name || "Trade attachment"} /><span>Click to preview</span></button>` : html`<div className="media-placeholder"><${Icon} name="upload" size=${18} /></div>`}
             <div><span>${file.name || "Trade image"}</span><button type="button" onClick=${() => setMedia((items) => items.filter((item) => item.key !== file.key))}>Remove</button></div>
           </div>`)}
           ${selectedFiles.map((file, index) => html`<div className="media-pending" key=${file.name + file.size + index}><${Icon} name="upload" size=${16} /><span>${file.name}</span><button type="button" onClick=${() => setSelectedFiles((items) => items.filter((_, i) => i !== index))}>Remove</button></div>`)}
@@ -605,40 +674,51 @@ function TradeModal({ trade, accounts, trades, initialAccountId, onClose, onSave
         ${mediaError ? html`<small className="media-error">${mediaError}</small>` : null}
         ${uploading ? html`<small className="media-uploading">Uploading media and saving trade…</small>` : null}
       </div>
+      <div className="media-upload-block">
+        <div className="media-upload-head">
+          <div><strong>Pre-Entry Chart Upload</strong><small>Attach screenshots captured before entering the trade. JPG, PNG, WEBP or GIF; images are compressed automatically (20 MB max before compression).</small></div>
+          <input ref=${preEntryFileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden-input" onChange=${(e) => { setSelectedPreEntryFiles((files) => [...files, ...Array.from(e.target.files || [])]); e.target.value = ""; setMediaError(""); }} />
+          <button type="button" className="btn btn-secondary" onClick=${() => preEntryFileInputRef.current?.click()}><${Icon} name="upload" size=${15} /> Add pre-entry media</button>
+        </div>
+        <div className="media-attachment-grid">
+          ${preEntryMedia.map((file) => html`<div className="media-attachment" key=${file.key}>
+            ${file.url ? html`<button type="button" className="media-preview-trigger" onClick=${() => setPreviewImage({ files: [...media, ...preEntryMedia], initialFile: file, mediaKeys: media.map((item) => item.key), preEntryKeys: preEntryMedia.map((item) => item.key) })} title="Click to preview images"><img src=${file.url} alt=${file.name || "Pre-entry chart attachment"} /><span>Click to preview</span></button>` : html`<div className="media-placeholder"><${Icon} name="upload" size=${18} /></div>`}
+            <div><span>${file.name || "Pre-entry chart image"}</span><button type="button" onClick=${() => setPreEntryMedia((items) => items.filter((item) => item.key !== file.key))}>Remove</button></div>
+          </div>`)}
+          ${selectedPreEntryFiles.map((file, index) => html`<div className="media-pending" key=${file.name + file.size + index}><${Icon} name="upload" size=${16} /><span>${file.name}</span><button type="button" onClick=${() => setSelectedPreEntryFiles((items) => items.filter((_, i) => i !== index))}>Remove</button></div>`)}
+        </div>
+      </div>
       </fieldset>
       <div className="modal-actions"><button type="button" className="btn btn-ghost" onClick=${close} disabled=${uploading}>Cancel</button><button type="submit" className="btn btn-primary" disabled=${uploading || blockNewEntry}>${blockNewEntry ? "Entry locked" : uploading ? "Saving…" : trade ? "Save changes" : "Add trade"}</button></div>
     </form>
-    ${previewImage ? html`<${ImageLightbox} file=${previewImage} onClose=${() => setPreviewImage(null)} />` : null}
+    ${previewImage ? html`<${ImageLightbox} files=${previewImage.files} initialFile=${previewImage.initialFile} mediaKeys=${previewImage.mediaKeys || []} preEntryKeys=${previewImage.preEntryKeys || []} onClose=${() => setPreviewImage(null)} />` : null}
   </${Modal}>`;
 }
 
 function AccountsModal({ accounts, trades, onClose, onAdd, onUpdate, onDelete }) {
-  const emptyForm = () => ({ firm: "Apex", customFirm: "", accountType: "Futures", accountStage: "Eval", accountStatus: "Active", name: "", startingBalance: 50000, purchaseAmount: 0, dailyLoss: 1000, maxDrawdown: 2500, profitTarget: 3000, consistencyCap: 30, minimumTradingDays: 0, safetyNetBalance: 0, minimumProfitableDays: 0, minimumProfitPerDay: 0, minimumPayoutAmount: 0, minimumProfitAboveSafetyNet: 500 });
+  const emptyForm = () => ({ firm: "", accountType: "Futures", accountStage: "Eval", accountStatus: "Active", name: "", startingBalance: 50000, purchaseAmount: 0, dailyLoss: 1000, maxDrawdown: 2500, profitTarget: 3000, consistencyCap: "", minimumTradingDays: 0, safetyNetBalance: 0, minimumProfitableDays: 0, minimumProfitPerDay: 0, minimumPayoutAmount: 0, minimumProfitAboveSafetyNet: 500 });
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const [purchaseMenuOpen, setPurchaseMenuOpen] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const startEdit = (account) => {
-    const knownFirms = ["Apex","FTMO","Topstep","TradeDay","My Funded Futures","Take Profit Trader","Alpha Capital","The5ers","Funding Pips","FundedNext"];
-    const isCustomFirm = !knownFirms.includes(account.firm);
     setEditingId(account.id);
     setForm({
       ...emptyForm(), ...account,
-      firm: isCustomFirm ? "__custom__" : account.firm,
+      firm: account.firm || "",
       accountType: account.accountType || (account.firm === "FTMO" ? "Forex" : "Futures"),
       accountStage: account.accountStage || "Eval",
       accountStatus: account.accountStatus || "Active",
       profitTarget: account.profitTarget ?? 0,
-      customFirm: isCustomFirm ? account.firm : ""
+      // Prop firm is stored directly as entered.
     });
   };
   const cancelEdit = () => { setEditingId(null); setForm(emptyForm()); };
   const submit = (e) => {
     e.preventDefault();
-    const firmName = form.firm === "__custom__" ? form.customFirm.trim() : form.firm;
+    const firmName = form.firm.trim();
     if (!form.name.trim() || !firmName) return;
-    const { customFirm, ...account } = form;
-    const saved = { ...account, firm: firmName, id: editingId || uid(), startingBalance: n(form.startingBalance), purchaseAmount: n(form.purchaseAmount), dailyLoss: n(form.dailyLoss), maxDrawdown: n(form.maxDrawdown), profitTarget: n(form.profitTarget), consistencyCap: n(form.consistencyCap), minimumTradingDays: n(form.minimumTradingDays), safetyNetBalance: n(form.safetyNetBalance), minimumProfitableDays: n(form.minimumProfitableDays), minimumProfitPerDay: n(form.minimumProfitPerDay), minimumPayoutAmount: n(form.minimumPayoutAmount), minimumProfitAboveSafetyNet: n(form.minimumProfitAboveSafetyNet) };
+    const saved = { ...form, firm: firmName, id: editingId || uid(), startingBalance: n(form.startingBalance), purchaseAmount: n(form.purchaseAmount), dailyLoss: n(form.dailyLoss), maxDrawdown: n(form.maxDrawdown), profitTarget: n(form.profitTarget), consistencyCap: n(form.consistencyCap), minimumTradingDays: n(form.minimumTradingDays), safetyNetBalance: n(form.safetyNetBalance), minimumProfitableDays: n(form.minimumProfitableDays), minimumProfitPerDay: n(form.minimumProfitPerDay), minimumPayoutAmount: n(form.minimumPayoutAmount), minimumProfitAboveSafetyNet: n(form.minimumProfitAboveSafetyNet) };
     delete saved.positiveDrawdownLimitValue;
     if (editingId) onUpdate(saved); else onAdd(saved);
     cancelEdit();
@@ -654,23 +734,18 @@ function AccountsModal({ accounts, trades, onClose, onAdd, onUpdate, onDelete })
     <section className="purchase-price-menu"><button type="button" className="purchase-price-menu-toggle" aria-expanded=${purchaseMenuOpen} onClick=${() => setPurchaseMenuOpen((open) => !open)}><span><strong>Individual account purchase prices</strong><small>View each account\'s purchase fee</small></span><span className="purchase-price-menu-total">${money(accounts.reduce((sum, account) => sum + n(account.purchaseAmount), 0))} <${Icon} name="chevron" size=${14} /></span></button>${purchaseMenuOpen ? html`<div className="purchase-price-menu-body">${accounts.map((account) => html`<div className="purchase-price-row" key=${account.id}><span><strong>${account.name}</strong><small>${account.firm}</small></span><strong>${money(account.purchaseAmount)}</strong></div>`)}</div>` : null}</section><div className="form-divider"><span>${editingId ? "Edit account" : "Add account"}</span></div>
     <form className="modal-form" onSubmit=${submit}>
       <div className="form-grid three">
-        <${Field} label="Prop firm"><select value=${form.firm} onChange=${(e) => set("firm", e.target.value)}>
-          <option value="Apex">Apex</option><option value="FTMO">FTMO</option><option value="Topstep">Topstep</option><option value="TradeDay">TradeDay</option><option value="My Funded Futures">My Funded Futures</option><option value="Take Profit Trader">Take Profit Trader</option><option value="Alpha Capital">Alpha Capital</option><option value="The5ers">The5ers</option><option value="Funding Pips">Funding Pips</option><option value="FundedNext">FundedNext</option><option value="__custom__">＋ Add another prop firm manually</option>
-        </select></${Field}>
-        <${Field} label="Account type"><select value=${form.accountType} onChange=${(e) => set("accountType", e.target.value)}><option value="Forex">Forex</option><option value="Futures">Futures</option><option value="Crypto">Crypto</option></select></${Field}>
-        <${Field} label="Account stage"><select value=${form.accountStage} onChange=${(e) => set("accountStage", e.target.value)}><option>Step 1</option><option>Step 2</option><option>Instant</option><option>Eval</option><option>Funded</option><option>Challenge</option></select></${Field}>
-        ${form.accountStage === "Funded" ? html`<${Field} label="Safety Net Threshold ($)"><input type="number" min="0" step="0.01" value=${form.safetyNetBalance} onChange=${(e) => set("safetyNetBalance", e.target.value)} placeholder="Enter safety net threshold" /></${Field}>` : null}
-        <${Field} label="Account status"><select value=${form.accountStatus} onChange=${(e) => set("accountStatus", e.target.value)}><option>Active</option><option>Failed</option><option>Pass</option></select></${Field}>
-        ${form.firm === "__custom__" ? html`<${Field} label="Custom prop firm name"><input required autoFocus value=${form.customFirm} onChange=${(e) => set("customFirm", e.target.value)} placeholder="Enter prop firm name" /></${Field}>` : null}
+        <${Field} label="Prop firm"><input required value=${form.firm} onChange=${(e) => set("firm", e.target.value)} placeholder="Enter prop firm name" /></${Field}>
         <${Field} label="Account name"><input required value=${form.name} onChange=${(e) => set("name", e.target.value)} placeholder="e.g. Apex 50K PA" /></${Field}>
         <${Field} label="Starting balance ($)"><input type="number" min="0" step="0.01" value=${form.startingBalance} onChange=${(e) => set("startingBalance", e.target.value)} /></${Field}>
-        ${null}
-        <${Field} label="Maximum daily loss ($)"><input type="number" min="0" value=${form.dailyLoss} onChange=${(e) => set("dailyLoss", e.target.value)} /></${Field}>
-        <${Field} label="Maximum drawdown / MLL ($)"><input type="number" min="0" value=${form.maxDrawdown} onChange=${(e) => set("maxDrawdown", e.target.value)} /></${Field}>
-        <${Field} label="Profit target ($)"><input type="number" min="0" step="0.01" value=${form.profitTarget} onChange=${(e) => set("profitTarget", e.target.value)} /><small>Consistency is calculated as your best profitable day divided by this target.</small></${Field}>
-        <${Field} label="Consistency rule (%)"><input type="number" min="1" max="100" value=${form.consistencyCap} onChange=${(e) => set("consistencyCap", e.target.value)} /></${Field}>
+        <${Field} label="Account type"><select value=${form.accountType} onChange=${(e) => set("accountType", e.target.value)}><option value="Forex">Forex</option><option value="Futures">Futures</option><option value="Crypto">Crypto</option><option value="Crypto Futures">Crypto Futures</option></select></${Field}>
+        <${Field} label="Account stage"><select value=${form.accountStage} onChange=${(e) => set("accountStage", e.target.value)}><option>Step 1</option><option>Step 2</option><option>Instant</option><option>Eval</option><option>Funded</option><option>Challenge</option></select></${Field}>
+        <${Field} label="Account status"><select value=${form.accountStatus} onChange=${(e) => set("accountStatus", e.target.value)}><option>Active</option><option>Failed</option><option>Pass</option></select></${Field}>
+        <${Field} label="Profit target ($)"><input type="number" min="0" step="0.01" value=${form.profitTarget} onChange=${(e) => set("profitTarget", e.target.value)} /><small>When a consistency rule is set, it compares your best profitable day with this target.</small></${Field}>
+        <${Field} label="Drawdown / MLL ($)"><input type="number" min="0" value=${form.maxDrawdown} onChange=${(e) => set("maxDrawdown", e.target.value)} /></${Field}>
+        <${Field} label="Daily Loss Limit ($)"><input type="number" min="0" value=${form.dailyLoss} onChange=${(e) => set("dailyLoss", e.target.value)} /></${Field}>
+        <${Field} label="Consistency rule (%)"><input type="number" min="0" max="100" value=${form.consistencyCap} onChange=${(e) => set("consistencyCap", e.target.value)} placeholder="Optional — leave blank or 0 for no rule" /><small>Only enforced when a percentage is entered above 0.</small></${Field}>
         <${Field} label="Minimum trading days"><select value=${form.minimumTradingDays ?? 0} onChange=${(e) => set("minimumTradingDays", e.target.value)}><option value="0">Not set</option>${Array.from({ length: 30 }, (_, i) => i + 1).map((days) => html`<option value=${days}>${days} ${days === 1 ? "day" : "days"}</option>`)}</select><small>Optional. Leave as Not set when the prop firm\'s rules do not require a minimum.</small></${Field}>
-        ${form.accountStage === "Funded" ? html`<${Field} label="Minimum profitable days"><input type="number" min="1" max="30" step="1" value=${form.minimumProfitableDays ?? 0} onChange=${(e) => set("minimumProfitableDays", e.target.value)} placeholder="e.g. 5" /><small>Required for payout eligibility; pair this with a minimum profit per day.</small></${Field}><${Field} label="Minimum profit per day ($)"><input type="number" min="0.01" step="0.01" value=${form.minimumProfitPerDay ?? 0} onChange=${(e) => set("minimumProfitPerDay", e.target.value)} placeholder="e.g. 100" /><small>Required with minimum profitable days to qualify.</small></${Field}><${Field} label="Minimum payout amount ($)"><input type="number" min="0.01" step="0.01" value=${form.minimumPayoutAmount ?? 0} onChange=${(e) => set("minimumPayoutAmount", e.target.value)} placeholder="e.g. 500" /><small>Required minimum request size for this funded account.</small></${Field}>` : null}
+        ${["Funded", "Instant"].includes(form.accountStage) ? html`<${Field} label="Safety Net Threshold ($)" hint="Payouts unlock only after balance exceeds starting balance + this threshold."><input type="number" min="0" step="0.01" value=${form.safetyNetBalance} onChange=${(e) => set("safetyNetBalance", e.target.value)} placeholder="Enter safety net threshold" /></${Field}><${Field} label="Minimum profitable days"><input type="number" min="1" max="30" step="1" value=${form.minimumProfitableDays ?? 0} onChange=${(e) => set("minimumProfitableDays", e.target.value)} placeholder="e.g. 5" /><small>Required for payout eligibility; pair this with a minimum profit per day.</small></${Field}><${Field} label="Minimum profit per day ($)"><input type="number" min="0.01" step="0.01" value=${form.minimumProfitPerDay ?? 0} onChange=${(e) => set("minimumProfitPerDay", e.target.value)} placeholder="e.g. 100" /><small>Required with minimum profitable days to qualify.</small></${Field}><${Field} label="Minimum payout amount ($)"><input type="number" min="0.01" step="0.01" value=${form.minimumPayoutAmount ?? 0} onChange=${(e) => set("minimumPayoutAmount", e.target.value)} placeholder="e.g. 500" /><small>Required minimum request size for this funded account.</small></${Field}><${Field} label="Minimum profit above safety net ($)"><input type="number" min="0" step="0.01" value=${form.minimumProfitAboveSafetyNet ?? 500} onChange=${(e) => set("minimumProfitAboveSafetyNet", e.target.value)} placeholder="e.g. 500" /><small>Extra profit required above the protected balance; use 0 when the firm has no extra buffer.</small></${Field}>` : null}
       </div>
       <div className="modal-actions">${editingId ? html`<button className="btn btn-ghost" type="button" onClick=${cancelEdit}>Cancel edit</button>` : null}<button className="btn btn-primary" type="submit"><${Icon} name=${editingId ? "edit" : "plus"} size=${15} /> ${editingId ? "Save account" : "Add account"}</button></div>
     </form>
@@ -834,9 +909,14 @@ function AnalyticsPage({ accounts, trades, metrics, accountBreakdown }) {
   const worst = dailyEntries.reduce((m, x) => Math.min(m, x[1]), 0);
   const maxAbs = Math.max(1, ...accountBreakdown.map((x) => Math.abs(x.stats.pnl)));
   const starting = accounts.reduce((s, a) => s + n(a.startingBalance), 0);
-  const dailyLossLimit = accounts.reduce((s, a) => s + n(a.dailyLoss), 0);
-  const todayPnl = trades.filter((t) => t.date === todayISO()).reduce((s, t) => s + n(t.pnl), 0);
-  const todayUsage = dailyLossLimit ? Math.max(0, -todayPnl) / dailyLossLimit * 100 : 0;
+  const dailyLossMonitor = accounts.reduce((worst, account) => {
+    const limit = n(account.dailyLoss);
+    const dayPnl = trades.filter((trade) => trade.accountId === account.id && trade.date === todayISO()).reduce((sum, trade) => sum + n(trade.pnl), 0);
+    const loss = Math.max(0, -dayPnl);
+    const usage = limit > 0 ? loss / limit * 100 : 0;
+    return usage > worst.usage ? { accountName: account.name, loss, limit, usage } : worst;
+  }, { accountName: "No account limit", loss: 0, limit: 0, usage: 0 });
+  const todayUsage = dailyLossMonitor.usage;
   const cap = accounts.length ? Math.min(...accounts.map((a) => n(a.consistencyCap) || 100)) : 30;
   return html`<div className="page-stack">
     <${SectionHeading} eyebrow="EDGE & RISK" title="Analytics" description="Measure expectancy, consistency and drawdown discipline across your portfolio." />
@@ -856,7 +936,7 @@ function AnalyticsPage({ accounts, trades, metrics, accountBreakdown }) {
       </section>
       <section className="panel risk-panel">
         <div className="panel-head"><div><div className="eyebrow">RISK GOVERNANCE</div><h3>Prop firm guardrails</h3></div><span className="status-tag">Monitoring</span></div>
-        <div className="risk-meter-block"><div className="risk-meter-label"><span>Daily loss usage</span><strong>${todayUsage.toFixed(1)}%</strong></div><div className="risk-meter"><i className=${todayUsage >= 100 ? "meter-red" : todayUsage >= 70 ? "meter-amber" : "meter-green"} style=${{ width: Math.min(100, todayUsage) + "%" }} /></div><small>${money(Math.max(0, -todayPnl))} used of ${money(dailyLossLimit)} combined daily limits</small></div>
+        <div className="risk-meter-block"><div className="risk-meter-label"><span>Highest account daily-loss usage</span><strong>${todayUsage.toFixed(1)}%</strong></div><div className="risk-meter"><i className=${todayUsage >= 100 ? "meter-red" : todayUsage >= 70 ? "meter-amber" : "meter-green"} style=${{ width: Math.min(100, todayUsage) + "%" }} /></div><small>${dailyLossMonitor.limit > 0 ? money(dailyLossMonitor.loss) + " used of " + money(dailyLossMonitor.limit) + " · " + dailyLossMonitor.accountName : "Set a daily loss limit on an account to monitor usage"}</small></div>
         <div className="risk-meter-block"><div className="risk-meter-label"><span>Best-day concentration</span><strong>${metrics.bestDayShare.toFixed(1)}%</strong></div><div className="risk-meter"><i className=${metrics.bestDayShare > cap ? "meter-amber" : "meter-green"} style=${{ width: Math.min(100, metrics.bestDayShare) + "%" }} /></div><small>Largest winning day ÷ total profit target × 100 · rule ${cap}%</small></div>
         <div className="risk-stats-row"><div><span>Best trading day</span><strong className="positive">${signedMoney(best)}</strong></div><div><span>Worst trading day</span><strong className="negative">${signedMoney(worst)}</strong></div></div>
       </section>
@@ -869,8 +949,8 @@ function AnalyticsPage({ accounts, trades, metrics, accountBreakdown }) {
           const dailyUse = account.dailyLoss ? Math.max(0, -stats.todayPnl) / account.dailyLoss * 100 : 0;
           const concentration = stats.bestDayShare;
           const breached = failed || ddUse >= 100 || dailyUse >= 100;
-          const watch = ddUse >= 70 || dailyUse >= 70 || concentration > n(account.consistencyCap);
-          return html`<tr><td><strong>${account.name}</strong><small>${account.firm}</small></td><td className=${"mono-cell " + pnlClass(stats.pnl)}>${signedMoney(stats.pnl)}</td><td className="mono-cell">${money(stats.maxDD)}</td><td><div className="limit-cell"><span>${ddUse.toFixed(0)}%</span><div className="limit-track"><i style=${{ width: Math.min(100, ddUse) + "%" }} className=${ddUse >= 100 ? "meter-red" : ddUse >= 70 ? "meter-amber" : "meter-green"} /></div></div></td><td className="mono-cell">${concentration.toFixed(1)}% / ${account.consistencyCap}%</td><td className=${"mono-cell " + pnlClass(stats.todayPnl)}>${signedMoney(stats.todayPnl)}</td><td><span className=${"health-status " + (breached ? "breach" : watch ? "watch" : "healthy")}>${failed ? "Failed" : breached ? "Limit hit" : watch ? "Watch" : "On track"}</span></td></tr>`;
+          const watch = ddUse >= 70 || dailyUse >= 70 || (n(account.consistencyCap) > 0 && concentration > n(account.consistencyCap));
+          return html`<tr><td><strong>${account.name}</strong><small>${account.firm}</small></td><td className=${"mono-cell " + pnlClass(stats.pnl)}>${signedMoney(stats.pnl)}</td><td className="mono-cell">${money(stats.maxDD)}</td><td><div className="limit-cell"><span>${ddUse.toFixed(0)}%</span><div className="limit-track"><i style=${{ width: Math.min(100, ddUse) + "%" }} className=${ddUse >= 100 ? "meter-red" : ddUse >= 70 ? "meter-amber" : "meter-green"} /></div></div></td><td className="mono-cell">${n(account.consistencyCap) > 0 ? concentration.toFixed(1) + "% / " + account.consistencyCap + "%" : "No rule"}</td><td className=${"mono-cell " + pnlClass(stats.todayPnl)}>${signedMoney(stats.todayPnl)}</td><td><span className=${"health-status " + (breached ? "breach" : watch ? "watch" : "healthy")}>${failed ? "Failed" : breached ? "Limit hit" : watch ? "Watch" : "On track"}</span></td></tr>`;
         })}
       </tbody></table></div>
       <div className="helper-note"><${Icon} name="shield" size=${15} /><span>Risk checks use recorded, realized trades only. Intraday unrealized drawdown and each firm's live rule engine are not connected.</span></div>
@@ -925,7 +1005,7 @@ function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, onC
   const visiblePayouts = payouts.filter((payout) => !payout.archived_at);
   const completedPayoutCount = visiblePayouts.filter((payout) => ["Paid", "Cancelled"].includes(payout.status)).length;
   const [clearingHistory, setClearingHistory] = useState(false);
-  const firstFunded = accounts.find((account) => String(account.accountStage || "").toLowerCase() === "funded") || accounts[0];
+  const firstFunded = accounts.find((account) => ["funded", "instant"].includes(String(account.accountStage || "").toLowerCase())) || accounts[0];
   const [accountId, setAccountId] = useState(firstFunded?.id || "");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
@@ -934,7 +1014,7 @@ function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, onC
   const selectedAccount = accounts.find((account) => account.id === accountId);
   const eligibility = payoutEligibility(selectedAccount, trades, payouts, n(amount));
   const pendingTotal = payouts.filter((payout) => payout.status === "Requested").reduce((sum, payout) => sum + n(payout.amount), 0);
-  const receivedTotal = payouts.filter((payout) => payout.status === "Paid").reduce((sum, payout) => sum + n(payout.amount), 0);
+  const receivedTotal = visiblePayouts.filter((payout) => payout.status === "Paid").reduce((sum, payout) => sum + n(payout.amount), 0);
   const submit = async (event) => {
     event.preventDefault();
     setError("");
@@ -954,7 +1034,7 @@ function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, onC
   return html`<div className="payout-page">
     <${SectionHeading} eyebrow="FUNDED ACCOUNT CASH FLOW" title="Payouts" description="Check your funded-account rules, submit a payout request, and keep a permanent record of every request." />
     <div className="payout-summary-grid">
-      <article className="payout-summary-card"><span>PAID OUT</span><strong>${money(receivedTotal)}</strong><small>${payouts.filter((payout) => payout.status === "Paid").length} completed payouts</small></article>
+      <article className="payout-summary-card"><span>PAID OUT</span><strong>${money(receivedTotal)}</strong><small>${visiblePayouts.filter((payout) => payout.status === "Paid").length} completed payouts</small></article>
       <article className="payout-summary-card"><span>REQUESTED</span><strong>${money(pendingTotal)}</strong><small>${payouts.filter((payout) => payout.status === "Requested").length} awaiting processing</small></article>
       <article className="payout-summary-card"><span>REQUEST HISTORY</span><strong>${visiblePayouts.length}</strong><small>Visible records · all accounts and statuses</small></article>
     </div>
@@ -990,16 +1070,16 @@ function PayoutsPage({ accounts, trades, payouts, onRequest, onUpdateStatus, onC
           <div><strong>Minimum trading days</strong><p>Uses the account's Minimum trading days setting and counts distinct dates with trades.</p></div>
           <div><strong>Consistency rule</strong><p>Uses the account's consistency percentage and compares the best positive day against the profit target.</p></div>
           <div><strong>Minimum profit above Safety Net Threshold</strong><p>At least $500 (or the account's configured amount) must be available above the safety net before payout eligibility.</p></div>
-          <div><strong>Protected safety-net threshold</strong><p>This amount is never included in a payout. Every request is capped so the account balance after pending and paid payouts cannot fall below this protected threshold.</p></div>
+          <div><strong>Starting balance + Safety-net threshold</strong><p>Payout eligibility requires the account balance to exceed its starting balance plus the configured safety-net amount. Pending and paid payouts are deducted, and every request is capped so the remaining balance never falls below that combined floor.</p></div>
           <div><strong>Available profit</strong><p>Paid and pending requests are deducted to prevent requesting the same profit twice.</p></div>
         </div>
       </section>
     </div>
     <section className="panel payout-history-panel">
-      <div className="panel-head"><div><div className="eyebrow">DATABASE RECORDS</div><h3>Payout history</h3></div><div className="payout-history-head-actions"><span className="panel-chip">${visiblePayouts.length} visible</span><button type="button" className="btn btn-ghost" disabled=${loading || clearingHistory || completedPayoutCount === 0} onClick=${async () => { if (!window.confirm("Clear completed payout history from this list? Paid and cancelled payouts will remain in your account calculations.")) return; setClearingHistory(true); try { await onClearHistory(); } finally { setClearingHistory(false); } }}>${clearingHistory ? "Clearing…" : "Clear History"}</button></div></div>
+      <div className="panel-head"><div><div className="eyebrow">DATABASE RECORDS</div><h3>Payout history</h3></div><div className="payout-history-head-actions"><span className="panel-chip">${visiblePayouts.length} visible</span><button type="button" className="btn btn-ghost" disabled=${loading || clearingHistory || visiblePayouts.length === 0} onClick=${async () => { if (!window.confirm("Permanently delete ALL payout records for your signed-in account, including pending requests? This cannot be undone, and all payout totals and counts will reset to zero.")) return; setClearingHistory(true); try { await onClearHistory(); } finally { setClearingHistory(false); } }}>${clearingHistory ? "Clearing…" : "Clear History"}</button></div></div>
       ${loading ? html`<div className="payout-history-empty">Loading payout history…</div>` : visiblePayouts.length ? html`<div className="payout-history-table-wrap"><table className="payout-history-table"><thead><tr><th>Account</th><th>Requested</th><th>Amount</th><th>Status</th><th>Reference / note</th><th>Action</th></tr></thead><tbody>
         ${visiblePayouts.map((payout) => html`<tr key=${payout.id}><td><strong>${payout.account_name}</strong><small>${payout.firm || "—"}</small></td><td>${new Date(payout.created_at).toLocaleDateString()}</td><td className="payout-amount-cell">${money(payout.amount, payout.currency || "USD")}</td><td><span className=${"payout-history-status " + String(payout.status).toLowerCase()}>${payout.status}</span></td><td>${payout.note || "—"}</td><td>${payout.status === "Requested" ? html`<div className="payout-row-actions"><button type="button" className="btn btn-secondary" onClick=${() => onUpdateStatus(payout.id, "Paid")}>Mark paid</button><button type="button" className="btn btn-ghost" onClick=${() => onUpdateStatus(payout.id, "Cancelled")}>Cancel</button></div>` : "—"}</td></tr>`)}
-      </tbody></table></div>` : html`<div className="payout-history-empty"><strong>No visible payout requests</strong><span>New requests will appear here. Cleared paid and cancelled entries remain preserved in your account calculations.</span></div>`}
+      </tbody></table></div>` : html`<div className="payout-history-empty"><strong>No visible payout requests</strong><span>New payout requests will appear here after you create them.</span></div>`}
     </section>
   </div>`;
 }
@@ -1131,21 +1211,34 @@ function App() {
       // Serialize writes so a slow older PUT can never finish after and overwrite a newer journal snapshot.
       syncQueue.current = syncQueue.current.catch(() => {}).then(async () => {
         setSyncStatus("Saving changes…");
-        try {
-          const response = await fetch("/api/journal", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            credentials: "same-origin",
-            body: snapshot
-          });
-          if (response.status === 401) {
-            location.replace("/login?next=" + encodeURIComponent(location.pathname + location.search));
-            return;
+        let synced = false;
+        let retryableFailure = false;
+        for (let attempt = 0; attempt < 3 && !synced; attempt += 1) {
+          try {
+            const response = await fetch("/api/journal", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              credentials: "same-origin",
+              body: snapshot
+            });
+            if (response.status === 401) {
+              location.replace("/login?next=" + encodeURIComponent(location.pathname + location.search));
+              return;
+            }
+            if (response.ok) {
+              synced = true;
+              break;
+            }
+            retryableFailure = response.status >= 500;
+            if (!retryableFailure) break;
+          } catch (e) {
+            retryableFailure = true;
           }
-          setSyncStatus(response.ok ? "Cloud synced" : "Cloud sync failed · local copy only");
-        } catch (e) {
-          setSyncStatus("Cloud sync unavailable · local copy only");
+          if (retryableFailure && attempt < 2) {
+            await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+          }
         }
+        setSyncStatus(synced ? "Cloud synced" : "Cloud sync failed · local copy saved");
       });
     }, 650);
     return () => window.clearTimeout(timer);
@@ -1216,9 +1309,9 @@ function App() {
   const clearPayoutHistory = async () => {
     const response = await fetch("/api/payouts", { method: "DELETE", credentials: "same-origin" });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { toast(result.error || "Could not clear payout history"); return; }
-    setPayouts((current) => current.map((payout) => ["Paid", "Cancelled"].includes(payout.status) && !payout.archived_at ? { ...payout, archived_at: new Date().toISOString() } : payout));
-    toast(result.archivedCount ? `${result.archivedCount} completed payout records cleared from history` : "No completed payout records to clear");
+    if (!response.ok) { toast(result.error || "Could not permanently delete payout history"); return; }
+    setPayouts([]);
+    toast(result.deletedCount ? `${result.deletedCount} payout records permanently deleted` : "No payout records to delete");
   };
   const updatePayoutStatus = async (id, status) => {
     if (status === "Paid" && !window.confirm("Confirm that this payout has actually been received?")) return;
@@ -1233,7 +1326,7 @@ function App() {
   };
 
   const deleteStoredMedia = (trades) => {
-    const keys = trades.flatMap((trade) => (trade.media || []).map((file) => file.key).filter(Boolean));
+    const keys = trades.flatMap((trade) => [...(Array.isArray(trade.media) ? trade.media : []), ...(Array.isArray(trade.preEntryMedia) ? trade.preEntryMedia : [])].map((file) => file?.key).filter(Boolean));
     keys.forEach((key) => fetch("/api/trade-media", {
       method: "DELETE", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key })
     }).catch(() => null));
@@ -1300,10 +1393,10 @@ function App() {
     const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   };
   const exportCsv = () => {
-    const columns = ["date","account","firm","accountType","accountStage","accountStatus","startingBalance","profitTarget","symbol","market","side","outcome","marketBias","emotionState","positionSize","netPnl","riskAmount","rMultiple","setup","notes","mediaFiles"];
+    const columns = ["date","account","firm","accountType","accountStage","accountStatus","startingBalance","profitTarget","symbol","market","side","orderType","timeframe","tradingStyle","session","outcome","marketBias","emotionState","confluence","positionSize","positionSizeUnit","moveValue","moveUnit","netPnl","riskAmount","rMultiple","setup","news","notes","mediaFiles"];
     const rows = data.trades.map((t) => {
       const account = data.accounts.find((a) => a.id === t.accountId);
-      return [t.date, account?.name || "", account?.firm || "", account?.accountType || "", account?.accountStage || "Eval", account?.accountStatus || "Active", account?.startingBalance || "", account?.profitTarget || "", t.symbol, t.market, t.side, t.outcome || (n(t.pnl) > 0 ? "Win" : n(t.pnl) < 0 ? "Loss" : "Break even"), t.marketBias || "Neutral", t.emotionState || "calm", t.positionSize || "full", t.pnl, t.riskAmount, t.rMultiple, t.setup, t.notes, (t.media || []).map((file) => file.name).join("; ")];
+      return [t.date, account?.name || "", account?.firm || "", account?.accountType || "", account?.accountStage || "Eval", account?.accountStatus || "Active", account?.startingBalance || "", account?.profitTarget || "", t.symbol, t.market, t.side, t.orderType || "Market", t.timeframe || "5m", t.tradingStyle || "Intraday", t.session || "New York", t.outcome || (n(t.pnl) > 0 ? "Win" : n(t.pnl) < 0 ? "Loss" : "Break even"), t.marketBias || "Neutral", t.emotionState || "calm", t.confluence || "", t.positionSize || "full", t.positionSizeUnit || "", t.moveValue ?? "", t.moveUnit || "points", t.pnl, t.riskAmount, t.rMultiple, t.setup, t.news || "", t.notes, (t.media || []).map((file) => file.name).join("; ")];
     });
     const csv = [columns, ...rows].map((row) => row.map((cell) => { const value = String(cell ?? ""); const safe = typeof cell === "string" && /^[\s]*[=+\-@]/.test(value) ? "'" + value : value; return '"' + safe.replace(/"/g, '""') + '"'; }).join(",")).join("\n");
     downloadFile("trading-journal-trades-" + todayISO() + ".csv", csv, "text/csv;charset=utf-8");
@@ -1369,7 +1462,7 @@ function App() {
         ${nav.map((item, i) => html`${item.group ? html`<div className="nav-label">${item.group}</div>` : null}<button type="button" className=${"nav-item " + (page === item.id ? "active" : "")} title=${item.label} aria-label=${item.label} aria-current=${page === item.id ? "page" : undefined} onClick=${() => setPage(item.id)}><${Icon} name=${item.icon} size=${17} /><span>${item.label}</span>${page === item.id ? html`<i className="nav-active-dot"></i>` : null}</button>`)}
       </div>
       <div className="sidebar-bottom">
-        <div className="sidebar-account-card"><div className="sidebar-account-head"><span className="online-dot"></span><strong>${data.accounts.filter((account) => !isAccountFailed(account, data.trades) && (account.accountStatus || "Active") === "Active").length} active accounts</strong></div><div className="sidebar-account-footer-row"><div className="sidebar-purchase-total"><span>Total account purchases</span><strong>${money(data.accounts.reduce((sum, account) => sum + n(account.purchaseAmount), 0))}</strong></div><button onClick=${() => setModal({ type: "accounts" })}>Manage accounts <${Icon} name="chevron" size={12} /></button></div></div>
+        <div className="sidebar-account-card"><div className="sidebar-account-head"><span className="online-dot"></span><strong>${data.accounts.filter((account) => !isAccountFailed(account, data.trades) && (account.accountStatus || "Active") === "Active").length} active accounts</strong></div><div className="sidebar-account-footer-row"><button onClick=${() => setModal({ type: "accounts" })}>Manage accounts <${Icon} name="chevron" size={12} /></button></div></div>
         <div className="profile-row"><div className="profile-avatar">TJ</div><div><strong>My Journal</strong><span>Private workspace</span></div><span className="profile-status"></span></div>
       </div>
     </aside>
@@ -1387,7 +1480,7 @@ function App() {
       <footer className="app-footer"><span>TRADING JOURNAL <i>·</i> PRIVATE TRADING WORKSPACE</span><span>REALIZED DATA ONLY <i>·</i> NOT BROKER CONNECTED</span></footer>
     </main>
     <nav className="mobile-bottom-nav" aria-label="Main navigation">${nav.map((item) => html`<button type="button" className=${"mobile-nav-item " + (page === item.id ? "active" : "")} onClick=${() => setPage(item.id)} aria-current=${page === item.id ? "page" : undefined}><${Icon} name=${item.icon} size=${17} /><span>${item.label === "Calendar & P&L" ? "Calendar" : item.label === "Trade logs" ? "Trades" : item.label === "Data center" ? "Data" : item.label}</span></button>`)}</nav>
-    ${modal?.type === "trade" ? html`<${TradeModal} trade=${modal.trade} accounts=${data.accounts} trades=${data.trades} initialAccountId=${accountFilter === "all" ? data.accounts[0]?.id : accountFilter} onClose=${() => setModal(null)} onSave=${addTrade} />` : null}
+    ${modal?.type === "trade" ? html`<${TradeModal} trade=${modal.trade} accounts=${data.accounts} trades=${data.trades} playbook=${data.playbook} initialAccountId=${accountFilter === "all" ? data.accounts[0]?.id : accountFilter} onClose=${() => setModal(null)} onSave=${addTrade} />` : null}
     ${modal?.type === "accounts" ? html`<${AccountsModal} accounts=${data.accounts} trades=${data.trades} onClose=${() => setModal(null)} onAdd=${addAccount} onUpdate=${updateAccount} onDelete=${deleteAccount} />` : null}
     ${modal?.type === "playbook" ? html`<${PlaybookModal} item=${modal.item} onClose=${() => setModal(null)} onSave=${savePlaybook} />` : null}
     ${legacyPrompt && legacyCache ? html`<${Modal} title=${cachePromptType === "local" ? "Recover local journal backup?" : "Import previous browser journal?"} subtitle=${cachePromptType === "local" ? "Backup associated with this signed-in account" : "Unassigned browser cache · account confirmation required"} onClose=${() => {}}>
